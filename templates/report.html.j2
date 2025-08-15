@@ -116,6 +116,8 @@
             border-left: 4px solid #28a745;
             border: 1px solid var(--border-color);
             transition: all 0.3s ease;
+            min-width: 0; /* allow shrinking inside grid */
+            overflow: hidden; /* prevent children overflow */
         }
         
         .target-card:hover {
@@ -138,6 +140,9 @@
             font-size: 1.2em;
             font-weight: bold;
             color: var(--text-primary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         
         .target-status {
@@ -159,7 +164,7 @@
         
         .target-details {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
             gap: 15px;
             margin-bottom: 15px;
         }
@@ -174,10 +179,17 @@
             color: var(--text-secondary);
             font-size: 0.9em;
             margin-bottom: 5px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         
         .detail-value {
             color: var(--text-primary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            word-break: break-word;
         }
         
         .screenshot-container {
@@ -319,6 +331,27 @@
             border: 1px dashed var(--border-color);
         }
         
+        /* Interest accents */
+        .interest-red { border-left-color: #e74c3c; }
+        .interest-amber { border-left-color: #f39c12; }
+        .interest-green { border-left-color: #2ecc71; }
+        
+        /* Grid container */
+        #targetsGrid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+        
+        /* Prevent long text from causing overflow */
+        .target-host,
+        .detail-value,
+        .tag {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
         @media (max-width: 768px) {
             .container {
                 padding: 10px;
@@ -343,7 +376,7 @@
         <div class="header">
             <h1>🔍 SnapRecon Report</h1>
             <p>Run ID: {{ results.run_id }} | {{ results.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') }}</p>
-            <p>Model: {{ config.gemini_model }} | Total Cost: ${{ "%.4f"|format(total_cost) }}</p>
+            <p>Local analysis</p>
         </div>
 
         <div class="stats-grid">
@@ -365,15 +398,7 @@
             </div>
         </div>
 
-        {% if total_cost > 0 %}
-        <div class="cost-highlight">
-            <h3>💰 Cost Summary</h3>
-            <p><strong>Total Cost:</strong> ${{ "%.4f"|format(total_cost) }}</p>
-            {% if results.targets|selectattr('llm_result')|list|length > 0 %}
-            <p><strong>Cost per Target:</strong> ${{ "%.4f"|format(total_cost / results.targets|selectattr('llm_result')|list|length) }}</p>
-            {% endif %}
-        </div>
-        {% endif %}
+        
 
         <div class="section">
             <h2>Configuration</h2>
@@ -404,11 +429,29 @@
                 <button class="filter-btn active" onclick="filterTargets('all')">All ({{ results.targets|length }})</button>
                 <button class="filter-btn" onclick="filterTargets('success')">Success ({{ success_count }})</button>
                 <button class="filter-btn" onclick="filterTargets('error')">Errors ({{ error_count }})</button>
+                <select class="filter-btn" id="gridSize" onchange="changeGrid(this.value)">
+                    <option value="3">Grid: 3</option>
+                    <option value="4">Grid: 4</option>
+                    <option value="5">Grid: 5</option>
+                    <option value="8">Grid: 8</option>
+                    <option value="10">Grid: 10</option>
+                </select>
                 <input type="text" class="search-box" placeholder="Search targets..." onkeyup="searchTargets(this.value)">
             </div>
 
+            <div id="targetsGrid">
             {% for target in results.targets %}
-            <div class="target-card {% if target.error %}error{% endif %}" data-status="{% if target.error %}error{% else %}success{% endif %}" data-host="{{ target.host|lower }}">
+            {% set interest_class = '' %}
+            {% if target.llm_result %}
+                {% if target.llm_result.confidence >= 0.85 %}
+                    {% set interest_class = 'interest-red' %}
+                {% elif target.llm_result.confidence >= 0.6 %}
+                    {% set interest_class = 'interest-amber' %}
+                {% else %}
+                    {% set interest_class = 'interest-green' %}
+                {% endif %}
+            {% endif %}
+            <div class="target-card {% if target.error %}error{% endif %} {{ interest_class }}" data-status="{% if target.error %}error{% else %}success{% endif %}" data-host="{{ target.host|lower }}">
                 <div class="target-header">
                     <div class="target-host">{{ target.host }}</div>
                     <div class="target-status {% if target.error %}status-error{% else %}status-success{% endif %}">
@@ -464,14 +507,6 @@
                         <div class="detail-label">Summary</div>
                         <div class="detail-value">{{ target.llm_result.summary }}</div>
                     </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Confidence</div>
-                        <div class="detail-value">{{ "%.2f"|format(target.llm_result.confidence) }}</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Cost</div>
-                        <div class="detail-value">${{ "%.4f"|format(target.llm_result.cost_usd) }}</div>
-                    </div>
                 </div>
                 
                 {% if target.llm_result.tags %}
@@ -489,6 +524,7 @@
                     <img src="screenshots/{{ target.metadata.screenshot_path.name if target.metadata.screenshot_path else '' }}" 
                          alt="Screenshot of {{ target.host }}" 
                          class="screenshot"
+                         style="max-width: 100%; height: auto; object-fit: contain;"
                          onclick="openScreenshotModal(this.src, '{{ target.host }}')"
                          title="Click to view full size">
                 </div>
@@ -499,6 +535,7 @@
                 {% endif %}
             </div>
             {% endfor %}
+            </div>
         </div>
     </div>
 
@@ -563,6 +600,12 @@
                     target.classList.add('hidden');
                 }
             });
+        }
+
+        function changeGrid(n) {
+            const grid = document.getElementById('targetsGrid');
+            const cols = parseInt(n, 10) || 3;
+            grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
         }
     </script>
 </body>

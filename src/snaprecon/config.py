@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
+import toml
 
 
 class AppConfig(BaseModel):
@@ -55,20 +56,53 @@ class AppConfig(BaseModel):
     
     @classmethod
     def from_env(cls) -> AppConfig:
-        """Create config from environment variables."""
-        return cls(
-            google_api_key=os.getenv("GOOGLE_API_KEY", ""),
-            gemini_model=os.getenv("SNAPRECON_MODEL", "gemini-2.5-flash"),
-            max_cost_usd=float(os.getenv("SNAPRECON_MAX_COST", "10.0")),
-            output_dir=Path(os.getenv("SNAPRECON_OUTPUT_DIR", "runs")),
-            user_agent=os.getenv("SNAPRECON_USER_AGENT", ""),
-            proxy=os.getenv("SNAPRECON_PROXY"),
-            timeout_ms=int(os.getenv("SNAPRECON_TIMEOUT_MS", "30000")),
-            fullpage=os.getenv("SNAPRECON_FULLPAGE", "").lower() == "true",
-            subfinder_bin=os.getenv("SNAPRECON_SUBFINDER_BIN", "subfinder"),
-            concurrency=int(os.getenv("SNAPRECON_CONCURRENCY", "5")),
-            verbose=os.getenv("SNAPRECON_VERBOSE", "").lower() == "true",
-        )
+        """Create config from environment variables and optional config.toml."""
+        # Start with defaults/env
+        cfg = {
+            "google_api_key": os.getenv("GOOGLE_API_KEY", ""),
+            "gemini_model": os.getenv("SNAPRECON_MODEL", "gemini-2.5-flash"),
+            "max_cost_usd": float(os.getenv("SNAPRECON_MAX_COST", "10.0")),
+            "output_dir": Path(os.getenv("SNAPRECON_OUTPUT_DIR", "runs")),
+            "user_agent": os.getenv("SNAPRECON_USER_AGENT", ""),
+            "proxy": os.getenv("SNAPRECON_PROXY"),
+            "timeout_ms": int(os.getenv("SNAPRECON_TIMEOUT_MS", "30000")),
+            "fullpage": os.getenv("SNAPRECON_FULLPAGE", "").lower() == "true",
+            "subfinder_bin": os.getenv("SNAPRECON_SUBFINDER_BIN", "subfinder"),
+            "concurrency": int(os.getenv("SNAPRECON_CONCURRENCY", "5")),
+            "verbose": os.getenv("SNAPRECON_VERBOSE", "").lower() == "true",
+        }
+        # Merge config.toml if present
+        config_path = Path(os.getenv("SNAPRECON_CONFIG", "config.toml"))
+        if config_path.exists():
+            try:
+                data = toml.loads(config_path.read_text())
+                # Map sections → fields
+                gemini = data.get("gemini", {})
+                browser = data.get("browser", {})
+                discovery = data.get("discovery", {})
+                output = data.get("output", {})
+
+                cfg["gemini_model"] = gemini.get("model", cfg["gemini_model"]) or cfg["gemini_model"]
+                cfg["max_cost_usd"] = float(gemini.get("max_cost_usd", cfg["max_cost_usd"]))
+
+                ua = browser.get("user_agent")
+                if ua:
+                    cfg["user_agent"] = ua
+                cfg["timeout_ms"] = int(browser.get("timeout_ms", cfg["timeout_ms"]))
+                cfg["fullpage"] = bool(browser.get("fullpage", cfg["fullpage"]))
+
+                cfg["subfinder_bin"] = discovery.get("subfinder_bin", cfg["subfinder_bin"]) or cfg["subfinder_bin"]
+                cfg["concurrency"] = int(discovery.get("concurrency", cfg["concurrency"]))
+
+                out_dir = output.get("output_dir")
+                if out_dir:
+                    cfg["output_dir"] = Path(out_dir)
+                cfg["verbose"] = bool(output.get("verbose", cfg["verbose"]))
+            except Exception:
+                # Fall back silently to env/defaults if toml invalid
+                pass
+
+        return cls(**cfg)
     
     @classmethod
     def from_cli(cls, **kwargs) -> AppConfig:

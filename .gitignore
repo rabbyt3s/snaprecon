@@ -39,6 +39,7 @@ Thumbs.db
 
 # SnapRecon specific
 runs/
+**/runs/**
 output/
 logs/
 *.log

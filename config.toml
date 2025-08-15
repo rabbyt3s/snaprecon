@@ -2,7 +2,7 @@
 # Copy this file to config.toml and modify as needed
 
 [gemini]
-model = "gemini-2.5-flash"
+model = "gemini-2.5-flash-lite"
 max_cost_usd = 10.0
 
 [browser]

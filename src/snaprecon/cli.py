@@ -29,7 +29,7 @@ def run(
     input_file: Optional[str] = typer.Option(None, "--input-file", "-i", help="File containing target hosts (one per line)"),
     scope_file: str = typer.Option(..., "--scope-file", "-s", help="File containing allowed domains/suffixes"),
     output_dir: str = typer.Option("runs", "--output-dir", "-o", help="Output directory for results"),
-    gemini_model: str = typer.Option("gemini-1.5-flash", "--model", "-m", help="Gemini model to use"),
+    gemini_model: Optional[str] = typer.Option(None, "--model", "-m", help="Gemini model to use (overrides config.toml)"),
     max_cost: float = typer.Option(10.0, "--max-cost", help="Maximum cost in USD"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Skip LLM analysis"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
@@ -104,7 +104,7 @@ def run(
         
         # Analyze with Gemini (if not dry run)
         if not dry_run:
-            console.print(f"[yellow]Analyzing screenshots with Gemini Vision...[/yellow]")
+            console.print(f"[yellow]Analyzing screenshots (local heuristics)...[/yellow]")
             analyzer = GeminiAnalyzer(config)
             
             with Progress(
@@ -439,7 +439,7 @@ def quick(
     domain: Optional[str] = typer.Option(None, "--domain", "-d", help="Domain to discover subdomains for"),
     input_file: Optional[str] = typer.Option(None, "--input-file", "-i", help="File containing target hosts (one per line)"),
     output_dir: str = typer.Option("runs", "--output-dir", "-o", help="Output directory for results"),
-    gemini_model: str = typer.Option("gemini-1.5-flash", "--model", "-m", help="Gemini model to use"),
+    gemini_model: Optional[str] = typer.Option(None, "--model", "-m", help="Gemini model to use (overrides config.toml)"),
     max_cost: float = typer.Option(10.0, "--max-cost", help="Maximum cost in USD"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Skip LLM analysis"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),

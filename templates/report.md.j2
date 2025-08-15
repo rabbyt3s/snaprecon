@@ -2,8 +2,8 @@
 
 **Run ID:** {{ results.run_id }}  
 **Timestamp:** {{ results.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') }}  
-**Model Used:** {{ config.gemini_model }}  
-**Total Cost:** ${{ "%.4f"|format(total_cost) }}
+**Mode:** Local analysis  
+**Cost:** $0.0000
 
 ## Summary
 
@@ -36,8 +36,7 @@
 **Analysis Results:**
 - **Summary:** {{ target.llm_result.summary }}
 - **Tags:** {{ target.llm_result.tags|join(', ') }}
-- **Confidence:** {{ "%.2f"|format(target.llm_result.confidence) }}
-- **Cost:** ${{ "%.4f"|format(target.llm_result.cost_usd) }}
+- **Interesting:** {% if target.llm_result.confidence >= 0.85 %}RED{% elif target.llm_result.confidence >= 0.6 %}AMBER{% else %}GREEN{% endif %}
 {% endif %}
 
 ---
@@ -56,13 +55,7 @@
 ---
 {% endfor %}
 
-## Cost Breakdown
-
-**Total Cost:** ${{ "%.4f"|format(total_cost) }}
-
-{% if results.targets|selectattr('llm_result')|list|length > 0 %}
-**Cost per Target:** ${{ "%.4f"|format(total_cost / results.targets|selectattr('llm_result')|list|length) }}
-{% endif %}
+<!-- No cost breakdown in local mode -->
 
 ## Tags Summary
 
