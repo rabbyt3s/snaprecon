@@ -218,6 +218,13 @@ async def screenshot_many(targets: List[Target], config: AppConfig) -> List[Targ
                         code="SCREENSHOT_TIMEOUT"
                     )
                     return target
+                except asyncio.CancelledError as e:
+                    logger.warning(f"Screenshot task cancelled for {target.host}: {e}")
+                    target.error = NavigationError(
+                        "Screenshot task was cancelled",
+                        code="SCREENSHOT_CANCELLED"
+                    )
+                    return target
                 except Exception as e:
                     logger.error(f"Error taking screenshot of {target.host}: {e}")
                     target.error = NavigationError(
@@ -226,7 +233,8 @@ async def screenshot_many(targets: List[Target], config: AppConfig) -> List[Targ
                     )
                     return target
                 finally:
-                    await page.close()
+                    with suppress(Exception, asyncio.CancelledError):
+                        await page.close()
     
     # Process targets concurrently with overall timeout
     tasks = [screenshot_with_semaphore(target) for target in targets]
@@ -257,7 +265,7 @@ async def screenshot_many(targets: List[Target], config: AppConfig) -> List[Targ
     # Handle any exceptions that occurred
     processed_targets = []
     for i, result in enumerate(results):
-        if isinstance(result, Exception):
+        if isinstance(result, BaseException):
             logger.error(f"Error processing target {targets[i].host}: {result}")
             targets[i].error = NavigationError(
                 f"Processing failed: {result}",
