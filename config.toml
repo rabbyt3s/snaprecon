@@ -1,0 +1,19 @@
+# SnapRecon Configuration Example
+# Copy this file to config.toml and modify as needed
+
+[gemini]
+model = "gemini-2.5-flash"
+max_cost_usd = 10.0
+
+[browser]
+user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+timeout_ms = 30000
+fullpage = false
+
+[discovery]
+subfinder_bin = "subfinder"
+concurrency = 5
+
+[output]
+output_dir = "runs"
+verbose = true
