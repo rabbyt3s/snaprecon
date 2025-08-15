@@ -10,6 +10,7 @@ from typing import List, Optional
 from urllib.parse import urljoin
 
 from playwright.async_api import async_playwright, Browser, Page
+import httpx
 
 from .errors import NavigationError
 from .models import Target, Metadata
@@ -270,75 +271,69 @@ async def screenshot_many(targets: List[Target], config: AppConfig) -> List[Targ
 
 
 async def test_domain_resolution(targets: List[Target], config: AppConfig) -> List[Target]:
-    """Test domain resolution and return only targets with a working HTTP response (2xx/3xx/401/403)."""
-    semaphore = asyncio.Semaphore(config.concurrency)
-    
-    async def test_single_target(target: Target) -> Target:
+    """Ultra-fast availability check using HTTP HEAD/GET via httpx (no browser).
+
+    A target is considered working if it returns 2xx/3xx or 401/403 on HTTPS or HTTP.
+    """
+    total = len(targets)
+    logger.info(f"Testing resolution for {total} targets")
+
+    # Higher concurrency for network checks than for browser work, but stay reasonable
+    max_concurrency = min(max(config.concurrency * 10, config.concurrency), 100)
+    semaphore = asyncio.Semaphore(max_concurrency)
+
+    # Tight timeouts for speed (seconds)
+    max_ms = min(config.timeout_ms, 5000)
+    timeout = httpx.Timeout(connect=2.0, read=max_ms / 3000.0, write=2.0, pool=2.0)
+    limits = httpx.Limits(max_connections=max_concurrency * 2, max_keepalive_connections=max_concurrency)
+    default_headers = {"User-Agent": config.user_agent}
+
+    async def check_single(target: Target, client: httpx.AsyncClient) -> Target:
         async with semaphore:
-            async with BrowserManager(config) as browser_mgr:
-                page = await browser_mgr.create_page()
+            for scheme in ("https", "http"):
+                url = f"{scheme}://{target.host}"
                 try:
-                    # Test URL resolution with shorter timeout
-                    test_timeout = min(config.timeout_ms, 15000)  # Max 15 seconds for testing
-                    final_url, status_code = await try_urls(target.host, page, test_timeout)
-                    
-                    # Only include targets that resolve to a working HTTP response
-                    if (200 <= status_code < 400) or status_code in (401, 403):
-                        logger.debug(f"Target {target.host} resolves successfully (HTTP {status_code})")
+                    # Try HEAD first
+                    resp = await client.head(url, follow_redirects=False)
+                    status = resp.status_code
+                    if status < 400 or status in (401, 403):
                         return target
-                    else:
-                        logger.debug(f"Target {target.host} failed resolution (HTTP {status_code})")
-                        target.error = NavigationError(
-                            f"Domain did not return a working HTTP response (got {status_code})",
-                            code="DOMAIN_RESOLUTION_FAILED"
-                        )
-                        return target
-                        
+                    # Some servers block HEAD → try lightweight GET with redirects
+                    if status in (405, 501):
+                        resp = await client.get(url, headers={"Range": "bytes=0-0"}, follow_redirects=True)
+                        status = resp.status_code
+                        if status < 400 or status in (401, 403):
+                            return target
                 except Exception as e:
-                    # Handle Playwright errors gracefully without logging asyncio errors
-                    error_msg = str(e)
-                    if "net::ERR_ABORTED" in error_msg or "frame was detached" in error_msg:
-                        logger.debug(f"Target {target.host} connection aborted (normal for unreachable domains)")
-                    else:
-                        logger.debug(f"Target {target.host} failed resolution test: {e}")
-                    
-                    target.error = NavigationError(
-                        f"Domain resolution test failed: {error_msg}",
-                        code="RESOLUTION_TEST_FAILED"
-                    )
-                    return target
-                finally:
-                    try:
-                        await page.close()
-                    except Exception:
-                        pass  # Ignore errors when closing page
-    
-    # Test all targets concurrently with proper exception handling
-    logger.info(f"Testing resolution for {len(targets)} targets")
-    
-    # Use return_exceptions=True to prevent asyncio errors from bubbling up
-    results = await asyncio.gather(*[test_single_target(target) for target in targets], return_exceptions=True)
-    
-    # Handle any exceptions that occurred during testing
-    processed_targets = []
-    for i, result in enumerate(results):
-        if isinstance(result, Exception):
-            logger.error(f"Unexpected error testing target {targets[i].host}: {result}")
+                    logger.debug(f"Availability check failed for {url}: {e}")
+                    continue
+            target.error = NavigationError(
+                "Domain did not return a working HTTP response",
+                code="DOMAIN_RESOLUTION_FAILED"
+            )
+            return target
+
+    async with httpx.AsyncClient(verify=False, timeout=timeout, limits=limits, headers=default_headers) as client:
+        results = await asyncio.gather(
+            *[check_single(t, client) for t in targets], return_exceptions=True
+        )
+
+    processed: List[Target] = []
+    for i, res in enumerate(results):
+        if isinstance(res, Exception):
+            logger.debug(f"Unexpected error testing {targets[i].host}: {res}")
             targets[i].error = NavigationError(
-                f"Unexpected error during resolution test: {result}",
+                f"Unexpected error during resolution test: {res}",
                 code="UNEXPECTED_ERROR"
             )
-            processed_targets.append(targets[i])
+            processed.append(targets[i])
         else:
-            processed_targets.append(result)
-    
-    # Filter to only targets that resolved successfully
-    resolving_targets = [target for target in processed_targets if not target.error]
-    failed_targets = [target for target in processed_targets if target.error]
-    
-    logger.info(f"Resolution test complete: {len(resolving_targets)} resolved, {len(failed_targets)} failed")
-    
-    return resolving_targets
+            processed.append(res)
+
+    resolving = [t for t in processed if not t.error]
+    failed = [t for t in processed if t.error]
+    logger.info(f"Resolution test complete: {len(resolving)} resolved, {len(failed)} failed")
+    return resolving
 
 
 if __name__ == "__main__":
