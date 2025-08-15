@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from contextlib import suppress
 from typing import List, Optional
 from urllib.parse import urljoin
 
@@ -76,6 +77,30 @@ async def try_urls(host: str, page: Page, timeout_ms: int) -> tuple[str, int]:
 
     Treats 2xx/3xx and 401/403 as "working" responses.
     """
+    
+    async def safe_goto(url: str, wait_until: str, timeout_seconds: float):
+        """Navigate with timeout; ensure underlying task is cancelled and awaited on timeout.
+        Prevents 'Future exception was never retrieved' warnings from asyncio.
+        """
+        task = asyncio.create_task(page.goto(url, wait_until=wait_until))
+        try:
+            return await asyncio.wait_for(task, timeout_seconds)
+        except asyncio.TimeoutError:
+            task.cancel()
+            with suppress(Exception):
+                await task
+            raise
+    
+    async def safe_wait_for_load_state(state: str, timeout_ms: int):
+        """Wait for load state with timeout; cancel properly to avoid dangling futures."""
+        task = asyncio.create_task(page.wait_for_load_state(state, timeout=timeout_ms))
+        try:
+            return await asyncio.wait_for(task, timeout_ms / 1000.0)
+        except asyncio.TimeoutError:
+            task.cancel()
+            with suppress(Exception):
+                await task
+            raise
     urls_to_try = [
         f"https://{host}",
         f"http://{host}"
@@ -86,19 +111,13 @@ async def try_urls(host: str, page: Page, timeout_ms: int) -> tuple[str, int]:
             logger.debug(f"Trying {url}")
             
             # Use shorter timeout and don't wait for network idle
-            response = await asyncio.wait_for(
-                page.goto(url, wait_until="domcontentloaded"),
-                timeout=timeout_ms / 1000.0
-            )
+            response = await safe_goto(url, wait_until="domcontentloaded", timeout_seconds=timeout_ms / 1000.0)
             
             # Consider 2xx/3xx and 401/403 as working
             if response and (response.status < 400 or response.status in (401, 403)):
                 # Wait a bit more for content to load, but with timeout
                 try:
-                    await asyncio.wait_for(
-                        page.wait_for_load_state("networkidle", timeout=5000),  # 5 second timeout
-                        timeout=5.0
-                    )
+                    await safe_wait_for_load_state("networkidle", timeout_ms=5000)
                 except asyncio.TimeoutError:
                     logger.debug(f"Network idle timeout for {url}, continuing anyway")
                 
@@ -108,7 +127,12 @@ async def try_urls(host: str, page: Page, timeout_ms: int) -> tuple[str, int]:
             logger.debug(f"Timeout loading {url}")
             continue
         except Exception as e:
-            logger.debug(f"Failed to load {url}: {e}")
+            # Handle Playwright-specific errors gracefully
+            error_msg = str(e)
+            if "net::ERR_ABORTED" in error_msg or "frame was detached" in error_msg:
+                logger.debug(f"Connection aborted for {url} (normal for unreachable domains)")
+            else:
+                logger.debug(f"Failed to load {url}: {e}")
             continue
     
     # If all fail, return the last attempted URL with error status
@@ -271,22 +295,46 @@ async def test_domain_resolution(targets: List[Target], config: AppConfig) -> Li
                         return target
                         
                 except Exception as e:
-                    logger.debug(f"Target {target.host} failed resolution test: {e}")
+                    # Handle Playwright errors gracefully without logging asyncio errors
+                    error_msg = str(e)
+                    if "net::ERR_ABORTED" in error_msg or "frame was detached" in error_msg:
+                        logger.debug(f"Target {target.host} connection aborted (normal for unreachable domains)")
+                    else:
+                        logger.debug(f"Target {target.host} failed resolution test: {e}")
+                    
                     target.error = NavigationError(
-                        f"Domain resolution test failed: {e}",
+                        f"Domain resolution test failed: {error_msg}",
                         code="RESOLUTION_TEST_FAILED"
                     )
                     return target
                 finally:
-                    await page.close()
+                    try:
+                        await page.close()
+                    except Exception:
+                        pass  # Ignore errors when closing page
     
-    # Test all targets concurrently
+    # Test all targets concurrently with proper exception handling
     logger.info(f"Testing resolution for {len(targets)} targets")
-    results = await asyncio.gather(*[test_single_target(target) for target in targets])
+    
+    # Use return_exceptions=True to prevent asyncio errors from bubbling up
+    results = await asyncio.gather(*[test_single_target(target) for target in targets], return_exceptions=True)
+    
+    # Handle any exceptions that occurred during testing
+    processed_targets = []
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            logger.error(f"Unexpected error testing target {targets[i].host}: {result}")
+            targets[i].error = NavigationError(
+                f"Unexpected error during resolution test: {result}",
+                code="UNEXPECTED_ERROR"
+            )
+            processed_targets.append(targets[i])
+        else:
+            processed_targets.append(result)
     
     # Filter to only targets that resolved successfully
-    resolving_targets = [target for target in results if not target.error]
-    failed_targets = [target for target in results if target.error]
+    resolving_targets = [target for target in processed_targets if not target.error]
+    failed_targets = [target for target in processed_targets if target.error]
     
     logger.info(f"Resolution test complete: {len(resolving_targets)} resolved, {len(failed_targets)} failed")
     
