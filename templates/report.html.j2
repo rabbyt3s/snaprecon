@@ -343,13 +343,17 @@
             gap: 12px;
         }
         
-        /* Prevent long text from causing overflow */
-        .target-host,
-        .detail-value,
-        .tag {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+        /* Grid 3 readability: allow wrapping and full-width details */
+        #targetsGrid[data-cols="3"] .target-details {
+            grid-template-columns: 1fr;
+        }
+        #targetsGrid[data-cols="3"] .detail-value,
+        #targetsGrid[data-cols="3"] .detail-label,
+        #targetsGrid[data-cols="3"] .target-host {
+            white-space: normal;
+            text-overflow: unset;
+            overflow: visible;
+            word-break: break-word;
         }
         
         @media (max-width: 768px) {
@@ -439,7 +443,7 @@
                 <input type="text" class="search-box" placeholder="Search targets..." onkeyup="searchTargets(this.value)">
             </div>
 
-            <div id="targetsGrid">
+            <div id="targetsGrid" data-cols="3">
             {% for target in results.targets %}
             {% set interest_class = '' %}
             {% if target.llm_result %}
@@ -606,6 +610,7 @@
             const grid = document.getElementById('targetsGrid');
             const cols = parseInt(n, 10) || 3;
             grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+            grid.setAttribute('data-cols', String(cols));
         }
     </script>
 </body>
