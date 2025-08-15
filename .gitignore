@@ -43,3 +43,4 @@ output/
 logs/
 *.log
 config.local.toml
+.cursorrules

@@ -72,7 +72,10 @@ class BrowserManager:
 
 
 async def try_urls(host: str, page: Page, timeout_ms: int) -> tuple[str, int]:
-    """Try HTTPS first, then HTTP fallback with timeout protection."""
+    """Try HTTPS first, then HTTP fallback with timeout protection.
+
+    Treats 2xx/3xx and 401/403 as "working" responses.
+    """
     urls_to_try = [
         f"https://{host}",
         f"http://{host}"
@@ -88,7 +91,8 @@ async def try_urls(host: str, page: Page, timeout_ms: int) -> tuple[str, int]:
                 timeout=timeout_ms / 1000.0
             )
             
-            if response and response.status < 400:
+            # Consider 2xx/3xx and 401/403 as working
+            if response and (response.status < 400 or response.status in (401, 403)):
                 # Wait a bit more for content to load, but with timeout
                 try:
                     await asyncio.wait_for(
@@ -239,3 +243,56 @@ async def screenshot_many(targets: List[Target], config: AppConfig) -> List[Targ
             processed_targets.append(result)
     
     return processed_targets
+
+
+async def test_domain_resolution(targets: List[Target], config: AppConfig) -> List[Target]:
+    """Test domain resolution and return only targets with a working HTTP response (2xx/3xx/401/403)."""
+    semaphore = asyncio.Semaphore(config.concurrency)
+    
+    async def test_single_target(target: Target) -> Target:
+        async with semaphore:
+            async with BrowserManager(config) as browser_mgr:
+                page = await browser_mgr.create_page()
+                try:
+                    # Test URL resolution with shorter timeout
+                    test_timeout = min(config.timeout_ms, 15000)  # Max 15 seconds for testing
+                    final_url, status_code = await try_urls(target.host, page, test_timeout)
+                    
+                    # Only include targets that resolve to a working HTTP response
+                    if (200 <= status_code < 400) or status_code in (401, 403):
+                        logger.debug(f"Target {target.host} resolves successfully (HTTP {status_code})")
+                        return target
+                    else:
+                        logger.debug(f"Target {target.host} failed resolution (HTTP {status_code})")
+                        target.error = NavigationError(
+                            f"Domain did not return a working HTTP response (got {status_code})",
+                            code="DOMAIN_RESOLUTION_FAILED"
+                        )
+                        return target
+                        
+                except Exception as e:
+                    logger.debug(f"Target {target.host} failed resolution test: {e}")
+                    target.error = NavigationError(
+                        f"Domain resolution test failed: {e}",
+                        code="RESOLUTION_TEST_FAILED"
+                    )
+                    return target
+                finally:
+                    await page.close()
+    
+    # Test all targets concurrently
+    logger.info(f"Testing resolution for {len(targets)} targets")
+    results = await asyncio.gather(*[test_single_target(target) for target in targets])
+    
+    # Filter to only targets that resolved successfully
+    resolving_targets = [target for target in results if not target.error]
+    failed_targets = [target for target in results if target.error]
+    
+    logger.info(f"Resolution test complete: {len(resolving_targets)} resolved, {len(failed_targets)} failed")
+    
+    return resolving_targets
+
+
+if __name__ == "__main__":
+    # Test code
+    pass

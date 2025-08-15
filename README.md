@@ -85,6 +85,16 @@ snaprecon run --domain example.com --scope-file scope.txt --max-cost 5.0
 snaprecon run --input-file targets.txt --scope-file scope.txt
 ```
 
+### 4. Quick Mode (No Scope File)
+
+```bash
+# Quick reconnaissance without scope file - automatically filters to targets with a working HTTP response
+snaprecon quick --domain example.com
+
+# Quick mode with custom input file
+snaprecon quick --input-file targets.txt
+```
+
 ## 📋 Usage Guide
 
 ### Command Structure
@@ -98,6 +108,7 @@ snaprecon [COMMAND] [OPTIONS]
 | Command | Description | Use Case |
 |---------|-------------|----------|
 | `run` | Full reconnaissance run | Production reconnaissance |
+| `quick` | Quick reconnaissance without scope | Fast discovery and analysis |
 | `test` | Quick test run | Validation and testing |
 | `estimate` | Cost estimation | Planning and budgeting |
 | `validate` | Scope file validation | Pre-run verification |
@@ -107,7 +118,7 @@ snaprecon [COMMAND] [OPTIONS]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--domain` | Target domain | Required for discovery |
-| `--scope-file` | Allowed domains file | **Required** |
+| `--scope-file` | Allowed domains file | **Required** (except for `quick` command) |
 | `--test-count` | Number of test targets | 10 |
 | `--max-cost` | Maximum cost in USD | 10.0 |
 | `--model` | Gemini model | gemini-2.5-flash |
@@ -124,6 +135,8 @@ example.com
 *.example.org
 subdomain.example.net
 ```
+
+> **Note**: The `quick` command does not require a scope file and automatically filters to only include targets with a working HTTP response (2xx/3xx or 401/403).
 
 ## 📊 Output & Reports
 
@@ -143,6 +156,24 @@ Every run creates a timestamped directory with:
 - 🔍 **Smart Filtering** - Filter by success/error status
 - 📱 **Responsive Design** - Works on all devices
 - 💰 **Cost Tracking** - Real-time cost analysis
+
+## 🚀 Quick Mode Features
+
+The `quick` command allows you to run SnapRecon without a scope file by automatically filtering targets to only include domains that return a working HTTP response (2xx/3xx or 401/403).
+
+### Key Benefits
+
+- **No Scope File Required** - Perfect for quick reconnaissance and testing
+- **Automatic Filtering** - Only processes domains that actually resolve
+- **Faster Processing** - Skips domains that would fail anyway
+- **Same Output Quality** - Full screenshots and analysis for working domains
+
+### When to Use Quick Mode
+
+- **Initial Discovery** - Test domain enumeration before setting up scope
+- **Quick Assessments** - Rapid reconnaissance without scope configuration
+- **Testing** - Validate subdomain discovery results
+- **Development** - Test tool functionality without scope constraints
 
 ## 🔒 Security Features
 

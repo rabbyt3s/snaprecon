@@ -434,5 +434,178 @@ def test(
         raise typer.Exit(1)
 
 
+@app.command()
+def quick(
+    domain: Optional[str] = typer.Option(None, "--domain", "-d", help="Domain to discover subdomains for"),
+    input_file: Optional[str] = typer.Option(None, "--input-file", "-i", help="File containing target hosts (one per line)"),
+    output_dir: str = typer.Option("runs", "--output-dir", "-o", help="Output directory for results"),
+    gemini_model: str = typer.Option("gemini-1.5-flash", "--model", "-m", help="Gemini model to use"),
+    max_cost: float = typer.Option(10.0, "--max-cost", help="Maximum cost in USD"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Skip LLM analysis"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
+    concurrency: int = typer.Option(5, "--concurrency", "-c", help="Concurrent operations (1-20)"),
+    fullpage: bool = typer.Option(False, "--fullpage", help="Take full page screenshots"),
+    timeout: int = typer.Option(30000, "--timeout", help="Page timeout in milliseconds"),
+    proxy: Optional[str] = typer.Option(None, "--proxy", help="Proxy URL if needed"),
+    subfinder_bin: str = typer.Option("subfinder", "--subfinder-bin", help="Path to subfinder binary"),
+):
+    """Quick reconnaissance without scope file - automatically filters to resolving domains only."""
+    
+    # Setup logging
+    setup_logging(verbose=verbose)
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Create configuration
+        config = AppConfig.from_cli(
+            output_dir=Path(output_dir),
+            gemini_model=gemini_model,
+            max_cost_usd=max_cost,
+            dry_run=dry_run,
+            verbose=verbose,
+            concurrency=concurrency,
+            fullpage=fullpage,
+            timeout_ms=timeout,
+            proxy=proxy,
+            subfinder_bin=subfinder_bin
+        )
+        
+        console.print(f"[bold blue]SnapRecon Quick Mode[/bold blue] - No scope file required")
+        console.print(f"Output directory: [green]{config.run_dir}[/green]")
+        console.print(f"[yellow]Note:[/yellow] Only domains that return a working HTTP response (2xx/3xx/401/403) will be processed")
+        
+        # Resolve targets
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            task = progress.add_task("Resolving targets...", total=None)
+            
+            if domain:
+                targets = resolve_targets(config=config, domain=domain)
+                progress.update(task, description=f"Discovered {len(targets)} targets from {domain}")
+            else:
+                targets = resolve_targets(config=config, input_file=input_file)
+                progress.update(task, description=f"Loaded {len(targets)} targets from file")
+        
+        console.print(f"[yellow]Discovered {len(targets)} targets - testing availability...[/yellow]")
+        
+        # Test domain resolution and filter to only those that resolve
+        from .browser import test_domain_resolution
+        resolving_targets = asyncio.run(test_domain_resolution(targets, config))
+        
+        console.print(f"[green]✓[/green] {len(resolving_targets)} targets returned a working HTTP response")
+        
+        if not resolving_targets:
+            console.print("[red]No targets returned a working HTTP response. Exiting.[/red]")
+            raise typer.Exit(1)
+        
+        # Take screenshots
+        console.print(f"[yellow]Taking screenshots...[/yellow]")
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            task = progress.add_task("Processing targets...", total=len(resolving_targets))
+            
+            # Take screenshots
+            targets = asyncio.run(screenshot_many(resolving_targets, config))
+            
+            # Update progress
+            successful = len([t for t in targets if t.metadata and t.metadata.screenshot_path])
+            failed = len([t for t in targets if t.error])
+            progress.update(task, description=f"Screenshots: {successful} success, {failed} failed")
+        
+        console.print(f"[green]✓[/green] Screenshots completed")
+        
+        # Analyze with Gemini (if not dry run)
+        if not dry_run:
+            console.print(f"[yellow]Analyzing screenshots with Gemini Vision...[/yellow]")
+            analyzer = GeminiAnalyzer(config)
+            
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console
+            ) as progress:
+                task = progress.add_task("Analyzing targets...", total=len(targets))
+                
+                # Analyze targets
+                targets = asyncio.run(analyzer.analyze_many(targets))
+                
+                # Update progress
+                analyzed = len([t for t in targets if t.llm_result])
+                failed_analysis = len([t for t in targets if t.error and not t.metadata])
+                progress.update(task, description=f"Analysis: {analyzed} success, {failed_analysis} failed")
+            
+            console.print(f"[green]✓[/green] Analysis completed")
+        else:
+            console.print(f"[yellow]Skipping LLM analysis (dry run mode)[/yellow]")
+        
+        # Create results
+        total_cost = sum(t.llm_result.cost_usd for t in targets if t.llm_result)
+        success_count = len([t for t in targets if not t.error])
+        error_count = len([t for t in targets if t.error])
+        
+        # Create safe config without sensitive data
+        safe_config = SafeConfig(
+            output_dir=str(config.output_dir),
+            run_dir=str(config.run_dir),
+            gemini_model=config.gemini_model,
+            max_cost_usd=config.max_cost_usd,
+            user_agent=config.user_agent,
+            proxy=config.proxy,
+            timeout_ms=config.timeout_ms,
+            fullpage=config.fullpage,
+            subfinder_bin=config.subfinder_bin,
+            concurrency=config.concurrency,
+            dry_run=config.dry_run,
+            verbose=config.verbose
+        )
+        
+        results = RunResult(
+            config=safe_config,
+            targets=targets,
+            total_cost_usd=total_cost,
+            success_count=success_count,
+            error_count=error_count
+        )
+        
+        # Write reports
+        console.print(f"[yellow]Generating reports...[/yellow]")
+        output_files = write_results_and_reports(results, config)
+        
+        # Display summary
+        console.print(f"\n[bold green]✓ Quick run completed successfully![/bold green]")
+        
+        summary_table = Table(title="Quick Run Summary")
+        summary_table.add_column("Metric", style="cyan")
+        summary_table.add_column("Value", style="green")
+        
+        summary_table.add_row("Total Discovered", str(len(resolving_targets)))
+        summary_table.add_row("Successfully Resolved", str(len(resolving_targets)))
+        summary_table.add_row("Successful Screenshots", str(success_count))
+        summary_table.add_row("Failed Screenshots", str(error_count))
+        if not dry_run:
+            summary_table.add_row("Total Cost", f"${total_cost:.4f}")
+        summary_table.add_row("Output Directory", str(config.run_dir))
+        
+        console.print(summary_table)
+        
+        # Show output files
+        console.print(f"\n[bold]Output Files:[/bold]")
+        for file_type, file_path in output_files.items():
+            console.print(f"  [green]•[/green] {file_type}: {file_path}")
+        
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        if verbose:
+            import traceback
+            console.print(traceback.format_exc())
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
