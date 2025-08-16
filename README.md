@@ -1,6 +1,6 @@
 # SnapRecon
 
-A Python-based reconnaissance tool for authorized security testing that discovers subdomains, captures screenshots, and analyzes web applications using local keyword analysis and optional port scanning.
+A Python-based reconnaissance tool for authorized security testing that discovers subdomains, captures screenshots, and analyzes web applications using local keyword analysis.
 
 ## Overview
 
@@ -9,16 +9,13 @@ SnapRecon automates the reconnaissance phase of security assessments by:
 - Taking screenshots of web applications via Playwright/Chromium
 - Analyzing page content using local keyword heuristics
 - Generating comprehensive HTML and Markdown reports
-- Optionally performing lightweight port scanning as a sidecar process
 
 ## Features
 
 - **Subdomain Discovery**: Automatic subdomain enumeration via `subfinder`
 - **Screenshot Capture**: Headless browser automation with configurable timeouts
 - **Local Analysis**: Keyword-based tagging without external API calls
-- **Port Scanning**: Optional TCP connect-based port scanning (sidecar)
 - **Scope Validation**: Strict domain allowlist enforcement
-- **Cost Management**: Built-in cost estimation and limits
 - **Multiple Outputs**: JSON, HTML, and Markdown report generation
 - **Concurrent Processing**: Configurable concurrency for performance
 
@@ -96,16 +93,6 @@ snaprecon estimate --domain example.com
 snaprecon validate --scope-file scope.txt
 ```
 
-### Port Scanning
-
-```bash
-# Enable sidecar port scanning
-snaprecon quick --domain example.com --enable-port-scan --port-ranges "80,443,8080-8090,8443"
-
-# Custom port ranges
-snaprecon run --domain example.com --scope-file scope.txt --enable-port-scan --port-ranges "80,443,3000,5000,8000,3306,5432,27017,6379,9200"
-```
-
 ### Advanced Options
 
 ```bash
@@ -149,8 +136,7 @@ runs/
 │   ├── results.json          # Structured results data
 │   ├── report.html           # Interactive HTML report
 │   ├── report.md             # Markdown report
-│   ├── screenshots/          # PNG screenshots
-│   └── ports.html            # Port scan report (if enabled)
+│   └── screenshots/          # PNG screenshots
 ```
 
 ## Architecture
@@ -163,7 +149,6 @@ runs/
 - **Analysis**: Local keyword-based content analysis
 - **Reporting**: Jinja2 template-based report generation
 - **Safety**: Scope validation and denylist support
-- **Cost Management**: API cost estimation and limits
 
 ### Data Models
 
@@ -172,23 +157,18 @@ runs/
 - **SafeConfig**: Non-sensitive configuration for storage
 - **Error**: Structured error handling and reporting
 
-## Port Scanning
+## Local Analysis
 
-The port scanning feature operates as a sidecar process that:
-- Runs after main reconnaissance completion
-- Does not affect main results or reports
-- Generates a separate `ports.html` report
-- Uses lightweight TCP connect scanning
-- Respects concurrency limits and timeouts
+The tool uses local keyword analysis to categorize web pages:
 
-## Cost Management
+- **Authentication**: login, auth, sso, keycloak
+- **Administration**: admin, backoffice, wp-admin
+- **Infrastructure**: vpn, monitoring, devops, kubernetes
+- **Services**: jenkins, gitlab, jira, confluence
+- **Databases**: phpmyadmin, pgadmin, mongodb
+- **Security**: vault, guard, shield
 
-Built-in cost estimation for Gemini API usage:
-- **gemini-1.5-flash**: $0.15 per 1K vision tokens
-- **gemini-1.5-pro**: $0.75 per 1K vision tokens
-- **gemini-2.0-flash**: $0.15 per 1K vision tokens
-
-Cost limits are enforced per run with configurable maximums.
+Analysis is performed locally without external API calls, ensuring privacy and zero cost.
 
 ## Safety Features
 
@@ -196,7 +176,7 @@ Cost limits are enforced per run with configurable maximums.
 - **Denylist Support**: Optional domain blocking
 - **Rate Limiting**: Configurable concurrency and timeouts
 - **Error Handling**: Comprehensive error reporting and logging
-- **Dry Run Mode**: Test configuration without API calls
+- **Dry Run Mode**: Test configuration without analysis
 
 ## Performance
 
@@ -233,9 +213,9 @@ src/snaprecon/
 ├── models.py        # Data models and validation
 ├── discover.py      # Subdomain discovery
 ├── browser.py       # Browser automation
-├── analysis.py      # Content analysis
+├── analysis.py      # Local keyword analysis
 ├── reporting.py     # Report generation
-├── cost.py          # Cost management
+├── cost.py          # Cost management (legacy)
 ├── safety.py        # Scope validation
 └── utils.py         # Utility functions
 ```
