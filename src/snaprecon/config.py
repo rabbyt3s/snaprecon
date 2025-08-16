@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 from pydantic import BaseModel, Field, field_validator
 import toml
@@ -38,14 +38,16 @@ class AppConfig(BaseModel):
     # Runtime flags
     dry_run: bool = Field(default=False, description="Skip LLM analysis")
     verbose: bool = Field(default=False, description="Enable verbose logging")
+
+    # Optional port scan (HTML-only; not persisted in results.json)
+    port_scan_enabled: bool = Field(default=False, description="Enable ports scan and include in HTML report")
+    port_ranges: List[str] = Field(default_factory=list, description="Port tokens/ranges to scan (e.g., 80,443,8080-8090)")
     
     @field_validator("google_api_key")
     @classmethod
     def validate_api_key(cls, v: str) -> str:
-        """Ensure API key is provided."""
-        if not v:
-            raise ValueError("GOOGLE_API_KEY environment variable is required")
-        return v
+        """Allow empty API key for local analysis mode."""
+        return v or ""
     
     @field_validator("output_dir")
     @classmethod

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Dict
 
 import orjson
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -55,7 +55,7 @@ def write_results_json(results: RunResult, config: AppConfig) -> Path:
         raise
 
 
-def render_report_template(template_name: str, results: RunResult, config: AppConfig) -> str:
+def render_report_template(template_name: str, results: RunResult, config: AppConfig, *, ports_map: Optional[Dict[str, List[int]]] = None, scanned_ports: Optional[List[int]] = None) -> str:
     """Render a report template with Jinja2."""
     # Set up Jinja2 environment
     template_dir = Path(__file__).parent.parent.parent / "templates"
@@ -77,7 +77,10 @@ def render_report_template(template_name: str, results: RunResult, config: AppCo
         "targets_by_status": {
             "success": [t for t in results.targets if not t.error],
             "error": [t for t in results.targets if t.error]
-        }
+        },
+        # Optional ports context (HTML-only)
+        "ports_map": ports_map,
+        "scanned_ports": scanned_ports,
     }
     
     return template.render(**context)
@@ -101,12 +104,12 @@ def write_markdown_report(results: RunResult, config: AppConfig) -> Path:
         raise
 
 
-def write_html_report(results: RunResult, config: AppConfig) -> Path:
+def write_html_report(results: RunResult, config: AppConfig, *, ports_map: Optional[Dict[str, List[int]]] = None, scanned_ports: Optional[List[int]] = None) -> Path:
     """Write HTML report."""
     output_file = config.run_dir / "report.html"
     
     try:
-        content = render_report_template("report.html.j2", results, config)
+        content = render_report_template("report.html.j2", results, config, ports_map=ports_map, scanned_ports=scanned_ports)
         
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(content)
@@ -119,7 +122,7 @@ def write_html_report(results: RunResult, config: AppConfig) -> Path:
         raise
 
 
-def write_results_and_reports(results: RunResult, config: AppConfig) -> dict:
+def write_results_and_reports(results: RunResult, config: AppConfig, *, ports_map: Optional[Dict[str, List[int]]] = None, scanned_ports: Optional[List[int]] = None) -> dict:
     """Write all output files and return paths."""
     output_files = {}
     
@@ -129,7 +132,7 @@ def write_results_and_reports(results: RunResult, config: AppConfig) -> dict:
         
         # Write reports
         output_files["markdown_report"] = write_markdown_report(results, config)
-        output_files["html_report"] = write_html_report(results, config)
+        output_files["html_report"] = write_html_report(results, config, ports_map=ports_map, scanned_ports=scanned_ports)
         
         logger.info(f"All reports written to: {config.run_dir}")
         return output_files

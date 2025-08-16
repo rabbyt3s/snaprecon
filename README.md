@@ -1,6 +1,6 @@
 # SnapRecon
 
-A Python-based reconnaissance tool for authorized security testing that discovers subdomains, captures screenshots, and analyzes web applications using local keyword analysis.
+A Python-based reconnaissance tool for authorized security testing that discovers subdomains, captures screenshots, and analyzes web applications using local keyword analysis. Optionally, it can scan common TCP ports and include the results in the HTML report without altering results.json.
 
 ## Overview
 
@@ -41,12 +41,14 @@ playwright install --with-deps chromium
 
 ## Configuration
 
-### Environment Variables
+### Environment Variables (optional)
 
 ```bash
-export GOOGLE_API_KEY="your_api_key_here"
-export SNAPRECON_MODEL="gemini-2.5-flash"
-export SNAPRECON_MAX_COST="10.0"
+# These are legacy knobs for cost estimation; local analysis does not require an API key.
+# Leave GOOGLE_API_KEY empty for local analysis.
+export GOOGLE_API_KEY=""
+export SNAPRECON_MODEL="local-keyword"
+export SNAPRECON_MAX_COST="0.0"
 export SNAPRECON_OUTPUT_DIR="runs"
 export SNAPRECON_CONCURRENCY="5"
 ```
@@ -110,6 +112,9 @@ snaprecon run --domain example.com --scope-file scope.txt --dry-run
 
 # Verbose logging
 snaprecon run --domain example.com --scope-file scope.txt --verbose
+
+# Include Open Ports in HTML report (optional)
+snaprecon quick --domain example.com --enable-port-scan --port-ranges "80,443,8080-8083,8443,8000,8888"
 ```
 
 ## Scope File Format
@@ -168,7 +173,7 @@ The tool uses local keyword analysis to categorize web pages:
 - **Databases**: phpmyadmin, pgadmin, mongodb
 - **Security**: vault, guard, shield
 
-Analysis is performed locally without external API calls, ensuring privacy and zero cost.
+Analysis is performed locally without external API calls, ensuring privacy and zero cost. When port scanning is enabled, a lightweight TCP connect-only scan is run and results are shown only in the HTML report.
 
 ## Safety Features
 

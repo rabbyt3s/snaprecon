@@ -13,11 +13,12 @@ from rich.table import Table
 from .config import AppConfig
 from .discover import resolve_targets
 from .browser import screenshot_many
-from .analysis import GeminiAnalyzer
+from .analysis import LocalKeywordAnalyzer
 from .reporting import write_results_and_reports
 from .safety import enforce_scope
 from .models import Target, RunResult, SafeConfig
 from .utils import setup_logging
+from .port_scanner import scan_ports_for_hosts
 
 app = typer.Typer(add_completion=False, help="SnapRecon: Authorized reconnaissance with screenshot analysis")
 console = Console()
@@ -38,14 +39,19 @@ def run(
     timeout: int = typer.Option(30000, "--timeout", help="Page timeout in milliseconds"),
     proxy: Optional[str] = typer.Option(None, "--proxy", help="Proxy URL if needed"),
     subfinder_bin: str = typer.Option("subfinder", "--subfinder-bin", help="Path to subfinder binary"),
+    enable_port_scan: bool = typer.Option(False, "--enable-port-scan", help="Include an 'Open Ports' section in the HTML report"),
+    port_ranges: str = typer.Option("80,443", "--port-ranges", help="Comma-separated port tokens/ranges to scan (e.g., 80,443,8080-8090)"),
 ):
-    """Main entry: discover → screenshot → (optional) analyze → report."""
+    """Main entry: discover → port scan → screenshot → analyze → report."""
     
     # Setup logging
     setup_logging(verbose=verbose)
     logger = logging.getLogger(__name__)
     
     try:
+        # Parse port ranges
+        port_ranges_list = [p.strip() for p in port_ranges.split(",") if p.strip()]
+        
         # Create configuration
         config = AppConfig.from_cli(
             output_dir=Path(output_dir),
@@ -57,11 +63,16 @@ def run(
             fullpage=fullpage,
             timeout_ms=timeout,
             proxy=proxy,
-            subfinder_bin=subfinder_bin
+            subfinder_bin=subfinder_bin,
+            port_scan_enabled=enable_port_scan,
+            port_ranges=port_ranges_list,
         )
         
         console.print(f"[bold blue]SnapRecon[/bold blue] - Starting reconnaissance run")
         console.print(f"Output directory: [green]{config.run_dir}[/green]")
+        
+        if enable_port_scan:
+            console.print(f"[yellow]Ports sidecar enabled[/yellow] - Ports: {port_ranges}")
         
         # Resolve targets
         with Progress(
@@ -83,6 +94,8 @@ def run(
         targets = enforce_scope(targets, scope_file)
         console.print(f"[green]✓[/green] {len(targets)} targets in scope")
         
+        # No in-pipeline port scan; sidecar runs post-report if enabled
+        
         # Take screenshots
         console.print(f"[yellow]Taking screenshots...[/yellow]")
         with Progress(
@@ -102,10 +115,10 @@ def run(
         
         console.print(f"[green]✓[/green] Screenshots completed")
         
-        # Analyze with Gemini (if not dry run)
+        # Analyze with local keyword analysis (if not dry run)
         if not dry_run:
             console.print(f"[yellow]Analyzing screenshots (local heuristics)...[/yellow]")
-            analyzer = GeminiAnalyzer(config)
+            analyzer = LocalKeywordAnalyzer(config)
             
             with Progress(
                 SpinnerColumn(),
@@ -127,65 +140,89 @@ def run(
             console.print(f"[yellow]Skipping LLM analysis (dry run mode)[/yellow]")
         
         # Create results
-        total_cost = sum(t.llm_result.cost_usd for t in targets if t.llm_result)
-        success_count = len([t for t in targets if not t.error])
-        error_count = len([t for t in targets if t.error])
-        
-        # Create safe config without sensitive data
-        safe_config = SafeConfig(
-            output_dir=str(config.output_dir),
-            run_dir=str(config.run_dir),
-            gemini_model=config.gemini_model,
-            max_cost_usd=config.max_cost_usd,
-            user_agent=config.user_agent,
-            proxy=config.proxy,
-            timeout_ms=config.timeout_ms,
-            fullpage=config.fullpage,
-            subfinder_bin=config.subfinder_bin,
-            concurrency=config.concurrency,
-            dry_run=config.dry_run,
-            verbose=config.verbose
-        )
-        
         results = RunResult(
-            config=safe_config,
+            config=SafeConfig(
+                output_dir=str(config.output_dir),
+                run_dir=str(config.run_dir),
+                gemini_model=config.gemini_model,
+                max_cost_usd=config.max_cost_usd,
+                user_agent=config.user_agent,
+                proxy=config.proxy,
+                timeout_ms=config.timeout_ms,
+                fullpage=config.fullpage,
+                subfinder_bin=config.subfinder_bin,
+                concurrency=config.concurrency,
+                dry_run=config.dry_run,
+                verbose=config.verbose,
+            ),
             targets=targets,
-            total_cost_usd=total_cost,
-            success_count=success_count,
-            error_count=error_count
+            total_cost_usd=sum(t.llm_result.cost_usd for t in targets if t.llm_result),
+            success_count=len([t for t in targets if t.metadata and t.metadata.screenshot_path]),
+            error_count=len([t for t in targets if t.error])
         )
         
-        # Write reports
+        # Optional: compute ports map for HTML if enabled
+        ports_map = None
+        scanned_ports = None
+        if enable_port_scan:
+            unique_hosts = sorted({t.host for t in targets})
+            console.print(f"[yellow]Scanning ports (sidecar)...[/yellow]")
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console
+            ) as progress:
+                task = progress.add_task("Scanning ports...", total=None)
+                ports_map = asyncio.run(
+                    scan_ports_for_hosts(unique_hosts, config.port_ranges, max(1, config.concurrency * 10))
+                )
+                progress.update(task, description=f"Ports scanned for {len(ports_map)} hosts")
+            from .port_scanner import parse_port_tokens
+            scanned_ports = parse_port_tokens(config.port_ranges)
+
+        # Write results and reports
         console.print(f"[yellow]Generating reports...[/yellow]")
-        output_files = write_results_and_reports(results, config)
+        write_results_and_reports(results, config, ports_map=ports_map, scanned_ports=scanned_ports)
+        
+        console.print(f"[green]✓[/green] Reconnaissance completed successfully!")
+        console.print(f"Results saved to: [green]{config.run_dir}[/green]")
         
         # Display summary
-        console.print(f"\n[bold green]✓ Run completed successfully![/bold green]")
-        
-        summary_table = Table(title="Run Summary")
-        summary_table.add_column("Metric", style="cyan")
-        summary_table.add_column("Value", style="green")
-        
-        summary_table.add_row("Total Targets", str(len(targets)))
-        summary_table.add_row("Successful Screenshots", str(success_count))
-        summary_table.add_row("Failed Screenshots", str(error_count))
-        if not dry_run:
-            summary_table.add_row("Total Cost", f"${total_cost:.4f}")
-        summary_table.add_row("Output Directory", str(config.run_dir))
-        
-        console.print(summary_table)
-        
-        # Show output files
-        console.print(f"\n[bold]Output Files:[/bold]")
-        for file_type, file_path in output_files.items():
-            console.print(f"  [green]•[/green] {file_type}: {file_path}")
+        display_summary(results)
         
     except Exception as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        if verbose:
-            import traceback
-            console.print(traceback.format_exc())
+        logger.error(f"Reconnaissance failed: {e}")
+        console.print(f"[red]✗[/red] Reconnaissance failed: {e}")
         raise typer.Exit(1)
+
+
+def display_summary(results: RunResult):
+    """Display a summary of the reconnaissance run."""
+    console.print(f"\n[bold green]✓ Run completed successfully![/bold green]")
+    
+    summary_table = Table(title="Run Summary")
+    summary_table.add_column("Metric", style="cyan")
+    summary_table.add_column("Value", style="green")
+    
+    summary_table.add_row("Total Targets", str(len(results.targets)))
+    summary_table.add_row("Successful Screenshots", str(results.success_count))
+    summary_table.add_row("Failed Screenshots", str(results.error_count))
+    
+    if not results.config.dry_run:
+        summary_table.add_row("Total Cost", f"${results.total_cost_usd:.4f}")
+    
+    summary_table.add_row("Output Directory", str(results.config.run_dir))
+    
+    console.print(summary_table)
+    
+    # No inline port scan summary; ports are reported separately when enabled
+    
+    # Show output files
+    console.print(f"\n[bold]Output Files:[/bold]")
+    console.print(f"  [green]•[/green] Results: {results.config.run_dir}/results.json")
+    console.print(f"  [green]•[/green] Markdown Report: {results.config.run_dir}/report.md")
+    console.print(f"  [green]•[/green] HTML Report: {results.config.run_dir}/report.html")
+    console.print(f"  [green]•[/green] Screenshots: {results.config.run_dir}/screenshots/")
 
 
 @app.command()
@@ -345,9 +382,9 @@ def test(
         
         console.print(f"[green]✓[/green] Screenshots completed")
         
-        # Analyze with Gemini
-        console.print(f"[yellow]Analyzing screenshots with Gemini Vision...[/yellow]")
-        analyzer = GeminiAnalyzer(config)
+        # Analyze with local keyword analysis
+        console.print(f"[yellow]Analyzing screenshots with local keyword analysis...[/yellow]")
+        analyzer = LocalKeywordAnalyzer(config)
         
         with Progress(
             SpinnerColumn(),
@@ -448,6 +485,8 @@ def quick(
     timeout: int = typer.Option(30000, "--timeout", help="Page timeout in milliseconds"),
     proxy: Optional[str] = typer.Option(None, "--proxy", help="Proxy URL if needed"),
     subfinder_bin: str = typer.Option("subfinder", "--subfinder-bin", help="Path to subfinder binary"),
+    enable_port_scan: bool = typer.Option(False, "--enable-port-scan", help="Include an 'Open Ports' section in the HTML report"),
+    port_ranges: str = typer.Option("80,443", "--port-ranges", help="Comma-separated port tokens/ranges (e.g., 80,443,8080-8090)"),
 ):
     """Quick reconnaissance without scope file - automatically filters to resolving domains only."""
     
@@ -456,6 +495,9 @@ def quick(
     logger = logging.getLogger(__name__)
     
     try:
+        # Parse port ranges
+        port_ranges_list = [p.strip() for p in port_ranges.split(",") if p.strip()]
+
         # Create configuration
         config = AppConfig.from_cli(
             output_dir=Path(output_dir),
@@ -467,11 +509,15 @@ def quick(
             fullpage=fullpage,
             timeout_ms=timeout,
             proxy=proxy,
-            subfinder_bin=subfinder_bin
+            subfinder_bin=subfinder_bin,
+            port_scan_enabled=enable_port_scan,
+            port_ranges=port_ranges_list,
         )
         
         console.print(f"[bold blue]SnapRecon Quick Mode[/bold blue] - No scope file required")
         console.print(f"Output directory: [green]{config.run_dir}[/green]")
+        if enable_port_scan:
+            console.print(f"[yellow]Ports sidecar enabled[/yellow] - Ports: {port_ranges}")
         console.print(f"[yellow]Note:[/yellow] Only domains that return a working HTTP response (2xx/3xx/401/403) will be processed")
         
         # Resolve targets
@@ -489,11 +535,17 @@ def quick(
                 targets = resolve_targets(config=config, input_file=input_file)
                 progress.update(task, description=f"Loaded {len(targets)} targets from file")
         
+        # No in-pipeline port scan
+
         console.print(f"[yellow]Discovered {len(targets)} targets - testing availability...[/yellow]")
-        
-        # Test domain resolution and filter to only those that resolve
+
+        # Test domain resolution using lightweight HTTP checks (no browser)
         from .browser import test_domain_resolution
-        resolving_targets = asyncio.run(test_domain_resolution(targets, config))
+        targets_for_availability = [
+            Target(host=t.host, domain=t.domain, subdomain=t.subdomain)
+            for t in targets
+        ]
+        resolving_targets = asyncio.run(test_domain_resolution(targets_for_availability, config))
         
         console.print(f"[green]✓[/green] {len(resolving_targets)} targets returned a working HTTP response")
         
@@ -510,7 +562,7 @@ def quick(
         ) as progress:
             task = progress.add_task("Processing targets...", total=len(resolving_targets))
             
-            # Take screenshots
+            # Take screenshots (use the same resolved targets list as availability step)
             targets = asyncio.run(screenshot_many(resolving_targets, config))
             
             # Update progress
@@ -520,10 +572,10 @@ def quick(
         
         console.print(f"[green]✓[/green] Screenshots completed")
         
-        # Analyze with Gemini (if not dry run)
+        # Analyze with local keyword analysis (if not dry run)
         if not dry_run:
-            console.print(f"[yellow]Analyzing screenshots with Gemini Vision...[/yellow]")
-            analyzer = GeminiAnalyzer(config)
+            console.print(f"[yellow]Analyzing screenshots with local keyword analysis...[/yellow]")
+            analyzer = LocalKeywordAnalyzer(config)
             
             with Progress(
                 SpinnerColumn(),
@@ -548,7 +600,7 @@ def quick(
         total_cost = sum(t.llm_result.cost_usd for t in targets if t.llm_result)
         success_count = len([t for t in targets if not t.error])
         error_count = len([t for t in targets if t.error])
-        
+
         # Create safe config without sensitive data
         safe_config = SafeConfig(
             output_dir=str(config.output_dir),
@@ -562,20 +614,39 @@ def quick(
             subfinder_bin=config.subfinder_bin,
             concurrency=config.concurrency,
             dry_run=config.dry_run,
-            verbose=config.verbose
+            verbose=config.verbose,
         )
-        
+
         results = RunResult(
             config=safe_config,
             targets=targets,
             total_cost_usd=total_cost,
             success_count=success_count,
-            error_count=error_count
+            error_count=error_count,
         )
         
-        # Write reports
+        # Prepare ports map for HTML if enabled
+        ports_map = None
+        scanned_ports = None
+        if enable_port_scan:
+            unique_hosts = sorted({t.host for t in resolving_targets})
+            console.print(f"[yellow]Scanning ports (sidecar)...[/yellow]")
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console
+            ) as progress:
+                task = progress.add_task("Scanning ports...", total=None)
+                ports_map = asyncio.run(
+                    scan_ports_for_hosts(unique_hosts, config.port_ranges, max(1, config.concurrency * 10))
+                )
+                progress.update(task, description=f"Ports scanned for {len(ports_map)} hosts")
+            from .port_scanner import parse_port_tokens
+            scanned_ports = parse_port_tokens(config.port_ranges)
+
+        # Write reports (pass optional ports context)
         console.print(f"[yellow]Generating reports...[/yellow]")
-        output_files = write_results_and_reports(results, config)
+        output_files = write_results_and_reports(results, config, ports_map=ports_map, scanned_ports=scanned_ports)
         
         # Display summary
         console.print(f"\n[bold green]✓ Quick run completed successfully![/bold green]")

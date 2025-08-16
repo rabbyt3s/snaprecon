@@ -1,4 +1,4 @@
-"""SnapRecon: Authorized reconnaissance tool with screenshot analysis via Gemini Vision."""
+"""SnapRecon: Authorized reconnaissance tool with screenshot screenshots and local analysis."""
 
 __version__ = "0.1.0"
 __author__ = "SnapRecon Team"

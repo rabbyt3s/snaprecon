@@ -160,3 +160,6 @@ class GeminiAnalyzer:
                 )
         
         return targets
+
+# Backwards-compatible alias expected by CLI
+LocalKeywordAnalyzer = GeminiAnalyzer
