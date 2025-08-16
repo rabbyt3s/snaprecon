@@ -1,362 +1,275 @@
-# 🔍 SnapRecon
+# SnapRecon
 
-**Authorized reconnaissance tool with intelligent screenshot analysis via Gemini Vision**
+A Python-based reconnaissance tool for authorized security testing that discovers subdomains, captures screenshots, and analyzes web applications using local keyword analysis and optional port scanning.
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Security: No API Keys in Results](https://img.shields.io/badge/Security-No%20API%20Keys%20Exposed-green.svg)](https://github.com/yourusername/snaprecon)
+## Overview
 
-## 🚀 What is SnapRecon?
+SnapRecon automates the reconnaissance phase of security assessments by:
+- Discovering subdomains using `subfinder`
+- Taking screenshots of web applications via Playwright/Chromium
+- Analyzing page content using local keyword heuristics
+- Generating comprehensive HTML and Markdown reports
+- Optionally performing lightweight port scanning as a sidecar process
 
-SnapRecon is a powerful, authorized reconnaissance tool that combines subdomain discovery with intelligent screenshot analysis. It automatically discovers subdomains, captures screenshots, and uses Google's Gemini Vision AI to analyze and categorize web pages.
+## Features
 
-### ✨ Key Features
+- **Subdomain Discovery**: Automatic subdomain enumeration via `subfinder`
+- **Screenshot Capture**: Headless browser automation with configurable timeouts
+- **Local Analysis**: Keyword-based tagging without external API calls
+- **Port Scanning**: Optional TCP connect-based port scanning (sidecar)
+- **Scope Validation**: Strict domain allowlist enforcement
+- **Cost Management**: Built-in cost estimation and limits
+- **Multiple Outputs**: JSON, HTML, and Markdown report generation
+- **Concurrent Processing**: Configurable concurrency for performance
 
-- **🔍 Subdomain Discovery**: Automatic subdomain enumeration using `subfinder`
-- **📸 Smart Screenshots**: Browser automation with Playwright/Chromium
-- **🤖 AI Analysis**: Gemini Vision AI for intelligent page categorization
-- **🌙 Dark Theme Reports**: Beautiful, responsive HTML reports with dark mode
-- **🔒 Security First**: No sensitive data (API keys) stored in results
-- **📊 Cost Management**: Built-in cost tracking and limits
-- **⚡ Fast & Efficient**: Concurrent processing with configurable limits
+## Requirements
 
-## 🛠️ Installation
+- Python 3.8+
+- `subfinder` binary (Kali Linux or manual installation)
+- Playwright with Chromium browser
 
-### Prerequisites
-
-- **Python 3.11+**
-- **subfinder** (for subdomain discovery)
-- **Google API Key** (for Gemini Vision)
-
-### Quick Install
+## Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/snaprecon.git
+# Clone repository
+git clone https://github.com/rabbyt3s/snaprecon.git
 cd snaprecon
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
 
 # Install Playwright browsers
 playwright install --with-deps chromium
-
-# Install subfinder (Kali Linux)
-sudo apt install subfinder
-
-# Or download from: https://github.com/projectdiscovery/subfinder/releases
 ```
 
-### Environment Setup
-
-```bash
-# Create .env file
-cp config.example.toml config.toml
-
-# Edit config.toml with your settings
-# Required: GOOGLE_API_KEY
-# Optional: SNAPRECON_MODEL, SNAPRECON_MAX_COST, etc.
-```
-
-## 🎯 Quick Start
-
-### 1. Basic Test Run
-
-```bash
-# Test with 3 subdomains
-snaprecon test --domain example.com --scope-file scope.txt --test-count 3
-```
-
-### 2. Full Reconnaissance
-
-```bash
-# Full domain reconnaissance
-snaprecon run --domain example.com --scope-file scope.txt --max-cost 5.0
-```
-
-### 3. Custom Input File
-
-```bash
-# Use custom target list
-snaprecon run --input-file targets.txt --scope-file scope.txt
-```
-
-### 4. Quick Mode (No Scope File)
-
-```bash
-# Quick reconnaissance without scope file - automatically filters to targets with a working HTTP response
-snaprecon quick --domain example.com
-
-# Quick mode with custom input file
-snaprecon quick --input-file targets.txt
-```
-
-## 📋 Usage Guide
-
-### Command Structure
-
-```bash
-snaprecon [COMMAND] [OPTIONS]
-```
-
-### Available Commands
-
-| Command | Description | Use Case |
-|---------|-------------|----------|
-| `run` | Full reconnaissance run | Production reconnaissance |
-| `quick` | Quick reconnaissance without scope | Fast discovery and analysis |
-| `test` | Quick test run | Validation and testing |
-| `estimate` | Cost estimation | Planning and budgeting |
-| `validate` | Scope file validation | Pre-run verification |
-
-### Essential Options
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--domain` | Target domain | Required for discovery |
-| `--scope-file` | Allowed domains file | **Required** (except for `quick` command) |
-| `--test-count` | Number of test targets | 10 |
-| `--max-cost` | Maximum cost in USD | 10.0 |
-| `--model` | Gemini model | gemini-2.5-flash |
-| `--concurrency` | Parallel operations | 5 |
-| `--timeout` | Page timeout (ms) | 30000 |
-
-### Scope File Format
-
-Create a `scope.txt` file with allowed domains:
-
-```txt
-# Allowed domains and suffixes
-example.com
-*.example.org
-subdomain.example.net
-```
-
-> **Note**: The `quick` command does not require a scope file and automatically filters to only include targets with a working HTTP response (2xx/3xx or 401/403).
-
-## 📊 Output & Reports
-
-### Generated Files
-
-Every run creates a timestamped directory with:
-
-- **`results.json`** - Raw data and analysis results
-- **`report.html`** - Interactive HTML report with dark theme
-- **`report.md`** - Markdown summary report
-- **`screenshots/`** - All captured screenshots
-
-### HTML Report Features
-
-- 🌙 **Dark Theme** - Easy on the eyes
-- 📸 **Screenshot Gallery** - Click to enlarge
-- 🔍 **Smart Filtering** - Filter by success/error status
-- 📱 **Responsive Design** - Works on all devices
-- 💰 **Cost Tracking** - Real-time cost analysis
-
-## 🚀 Quick Mode Features
-
-The `quick` command allows you to run SnapRecon without a scope file by automatically filtering targets to only include domains that return a working HTTP response (2xx/3xx or 401/403).
-
-### Key Benefits
-
-- **No Scope File Required** - Perfect for quick reconnaissance and testing
-- **Automatic Filtering** - Only processes domains that actually resolve
-- **Faster Processing** - Skips domains that would fail anyway
-- **Same Output Quality** - Full screenshots and analysis for working domains
-
-### When to Use Quick Mode
-
-- **Initial Discovery** - Test domain enumeration before setting up scope
-- **Quick Assessments** - Rapid reconnaissance without scope configuration
-- **Testing** - Validate subdomain discovery results
-- **Development** - Test tool functionality without scope constraints
-
-## 🔒 Security Features
-
-### API Key Protection
-
-- **No API keys stored** in results files
-- **SafeConfig model** excludes sensitive data
-- **Environment variables** for configuration
-- **Scope enforcement** prevents unauthorized targets
-
-### Scope Validation
-
-```bash
-# Validate your scope file before running
-snaprecon validate --scope-file scope.txt
-```
-
-## 💰 Cost Management
-
-### Pricing (Gemini 2.5 Flash)
-
-- **Vision Input**: $0.000225 per 1K tokens
-- **Text Output**: $0.000075 per 1K tokens
-- **Typical Cost**: ~$0.0002 per screenshot
-
-### Cost Estimation
-
-```bash
-# Estimate costs before running
-snaprecon estimate --domain example.com
-```
-
-### Cost Limits
-
-```bash
-# Set maximum cost limit
-snaprecon run --domain example.com --max-cost 5.0
-```
-
-## ⚙️ Configuration
+## Configuration
 
 ### Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `GOOGLE_API_KEY` | Google API key | **Required** |
-| `SNAPRECON_MODEL` | Gemini model | gemini-2.5-flash |
-| `SNAPRECON_MAX_COST` | Maximum cost | 10.0 |
-| `SNAPRECON_CONCURRENCY` | Parallel operations | 5 |
-| `SNAPRECON_TIMEOUT_MS` | Page timeout | 30000 |
+```bash
+export GOOGLE_API_KEY="your_api_key_here"
+export SNAPRECON_MODEL="gemini-2.5-flash"
+export SNAPRECON_MAX_COST="10.0"
+export SNAPRECON_OUTPUT_DIR="runs"
+export SNAPRECON_CONCURRENCY="5"
+```
 
-### Configuration File
+### Configuration File (config.toml)
 
 ```toml
-# config.toml
-[snaprecon]
-google_api_key = "your-api-key-here"
-gemini_model = "gemini-2.5-flash"
+[gemini]
+model = "gemini-2.5-flash"
 max_cost_usd = 10.0
-concurrency = 5
+
+[browser]
+user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 timeout_ms = 30000
 fullpage = false
+
+[discovery]
+subfinder_bin = "subfinder"
+concurrency = 5
+
+[output]
+output_dir = "runs"
+verbose = false
 ```
 
-## 🧪 Testing & Validation
+## Usage
 
-### Test Mode
-
-```bash
-# Quick test with limited targets
-snaprecon test --domain example.com --test-count 5
-```
-
-### Validation Commands
+### Basic Commands
 
 ```bash
-# Validate scope file
-snaprecon validate --scope-file scope.txt
+# Full reconnaissance with scope file
+snaprecon run --domain example.com --scope-file scope.txt
 
-# Check configuration
+# Quick reconnaissance (no scope file, auto-filtering)
+snaprecon quick --domain example.com --concurrency 10
+
+# Test run with limited targets
+snaprecon test --domain example.com --scope-file scope.txt --test-count 5
+
+# Cost estimation
 snaprecon estimate --domain example.com
+
+# Scope file validation
+snaprecon validate --scope-file scope.txt
 ```
 
-## 📁 Project Structure
+### Port Scanning
 
-```
-snaprecon/
-├── src/snaprecon/          # Core application
-│   ├── cli.py             # Command-line interface
-│   ├── models.py          # Data models (SafeConfig)
-│   ├── browser.py         # Screenshot automation
-│   ├── analysis.py        # Gemini Vision integration
-│   ├── reporting.py       # Report generation
-│   ├── safety.py          # Scope enforcement
-│   └── cost.py            # Cost management
-├── templates/              # Report templates
-│   ├── report.html.j2     # HTML report (dark theme)
-│   └── report.md.j2       # Markdown report
-├── tests/                  # Test suite
-├── docs/                   # Documentation
-├── scripts/                # Helper scripts
-└── config.example.toml     # Configuration template
+```bash
+# Enable sidecar port scanning
+snaprecon quick --domain example.com --enable-port-scan --port-ranges "80,443,8080-8090,8443"
+
+# Custom port ranges
+snaprecon run --domain example.com --scope-file scope.txt --enable-port-scan --port-ranges "80,443,3000,5000,8000,3306,5432,27017,6379,9200"
 ```
 
-## 🚨 Important Notes
+### Advanced Options
 
-### ⚠️ Legal & Ethical Use
+```bash
+# Full page screenshots
+snaprecon run --domain example.com --scope-file scope.txt --fullpage
 
-- **Only use on authorized targets**
-- **Respect robots.txt and rate limits**
-- **Follow responsible disclosure practices**
-- **Comply with local laws and regulations**
+# Custom timeout and concurrency
+snaprecon run --domain example.com --scope-file scope.txt --timeout 60000 --concurrency 10
 
-### 🔐 Security Best Practices
+# Proxy support
+snaprecon run --domain example.com --scope-file scope.txt --proxy "http://proxy:8080"
 
-- **Keep API keys secure**
-- **Use scope files to limit targets**
-- **Monitor costs and usage**
-- **Regular security updates**
+# Dry run (skip analysis)
+snaprecon run --domain example.com --scope-file scope.txt --dry-run
 
-## 🐛 Troubleshooting
+# Verbose logging
+snaprecon run --domain example.com --scope-file scope.txt --verbose
+```
+
+## Scope File Format
+
+Create a scope file with allowed domains and suffixes:
+
+```text
+# Allowed domains
+example.com
+test.example.com
+
+# Allowed suffixes (matches any subdomain)
+.example.org
+.test.com
+
+# Comments are ignored
+```
+
+## Output Structure
+
+```
+runs/
+├── 20241201_143022/          # Timestamped run directory
+│   ├── results.json          # Structured results data
+│   ├── report.html           # Interactive HTML report
+│   ├── report.md             # Markdown report
+│   ├── screenshots/          # PNG screenshots
+│   └── ports.html            # Port scan report (if enabled)
+```
+
+## Architecture
+
+### Core Components
+
+- **CLI Interface**: Typer-based command-line interface
+- **Discovery**: Subdomain enumeration and target resolution
+- **Browser Automation**: Playwright-based screenshot capture
+- **Analysis**: Local keyword-based content analysis
+- **Reporting**: Jinja2 template-based report generation
+- **Safety**: Scope validation and denylist support
+- **Cost Management**: API cost estimation and limits
+
+### Data Models
+
+- **Target**: Individual host with metadata and analysis results
+- **RunResult**: Complete reconnaissance run data
+- **SafeConfig**: Non-sensitive configuration for storage
+- **Error**: Structured error handling and reporting
+
+## Port Scanning
+
+The port scanning feature operates as a sidecar process that:
+- Runs after main reconnaissance completion
+- Does not affect main results or reports
+- Generates a separate `ports.html` report
+- Uses lightweight TCP connect scanning
+- Respects concurrency limits and timeouts
+
+## Cost Management
+
+Built-in cost estimation for Gemini API usage:
+- **gemini-1.5-flash**: $0.15 per 1K vision tokens
+- **gemini-1.5-pro**: $0.75 per 1K vision tokens
+- **gemini-2.0-flash**: $0.15 per 1K vision tokens
+
+Cost limits are enforced per run with configurable maximums.
+
+## Safety Features
+
+- **Scope Enforcement**: Mandatory domain allowlist validation
+- **Denylist Support**: Optional domain blocking
+- **Rate Limiting**: Configurable concurrency and timeouts
+- **Error Handling**: Comprehensive error reporting and logging
+- **Dry Run Mode**: Test configuration without API calls
+
+## Performance
+
+- **Concurrent Processing**: Configurable concurrency (1-20)
+- **Timeout Protection**: Per-target and overall timeouts
+- **Resource Management**: Efficient browser instance handling
+- **Memory Optimization**: Streaming screenshot processing
+
+## Troubleshooting
 
 ### Common Issues
 
-| Problem | Solution |
-|---------|----------|
-| **API Key Error** | Check `GOOGLE_API_KEY` environment variable |
-| **Subfinder Not Found** | Install subfinder or specify `--subfinder-bin` |
-| **Screenshot Failures** | Check network connectivity and target availability |
-| **Cost Exceeded** | Increase `--max-cost` or reduce target count |
+1. **Subfinder not found**: Install `subfinder` or specify path with `--subfinder-bin`
+2. **Browser launch failures**: Ensure Playwright is installed with `playwright install --with-deps chromium`
+3. **Permission errors**: Check file permissions for output directories
+4. **Timeout issues**: Adjust `--timeout` and `--concurrency` values
 
 ### Debug Mode
 
+Enable verbose logging for troubleshooting:
+
 ```bash
-# Enable verbose logging
-snaprecon run --domain example.com --verbose
+snaprecon run --domain example.com --scope-file scope.txt --verbose
 ```
 
-## 🤝 Contributing
+## Development
 
-### Development Setup
+### Project Structure
+
+```
+src/snaprecon/
+├── cli.py           # Command-line interface
+├── config.py        # Configuration management
+├── models.py        # Data models and validation
+├── discover.py      # Subdomain discovery
+├── browser.py       # Browser automation
+├── analysis.py      # Content analysis
+├── reporting.py     # Report generation
+├── cost.py          # Cost management
+├── safety.py        # Scope validation
+└── utils.py         # Utility functions
+```
+
+### Testing
 
 ```bash
-# Clone and setup development environment
-git clone https://github.com/yourusername/snaprecon.git
-cd snaprecon
-pip install -e .
-pip install -r requirements-dev.txt
-
 # Run tests
-pytest tests/
+pytest
+
+# Run with coverage
+pytest --cov=src/snaprecon
+
+# Run specific test categories
+pytest tests/unit/
+pytest tests/integration/
 ```
 
-### Code Style
+## Contributing
 
-- **Black** for code formatting
-- **Ruff** for linting
-- **Type hints** for all functions
-- **Docstrings** for all modules
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Submit a pull request
 
-## 📄 License
+## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see LICENSE file for details.
 
-## 🙏 Acknowledgments
+## Author
 
-- **Google Gemini** for AI vision capabilities
-- **Playwright** for browser automation
-- **ProjectDiscovery** for subfinder tool
-- **Open source community** for inspiration
+**rabbyt3s** - Security researcher and tool developer
 
-## 📞 Support
+## Disclaimer
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/snaprecon/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/snaprecon/discussions)
-- **Security**: [Security Policy](SECURITY.md)
-
----
-
-**⚡ Ready to start reconnaissance?** 
-
-```bash
-snaprecon test --domain yourdomain.com --scope-file scope.txt --test-count 5
-```
-
-**Happy hunting! 🎯**
+This tool is designed for authorized security testing only. Always ensure you have proper authorization before scanning any systems. The authors are not responsible for misuse of this software.
