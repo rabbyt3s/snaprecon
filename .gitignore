@@ -45,3 +45,9 @@ logs/
 *.log
 config.local.toml
 .cursorrules
+
+# User data files
+scope.txt
+targets.txt
+domains.txt
+jsfiles.txt
