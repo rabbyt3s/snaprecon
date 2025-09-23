@@ -89,6 +89,7 @@ class SafeConfig(BaseModel):
     concurrency: int = Field(..., description="Concurrent operations")
     dry_run: bool = Field(..., description="Skip LLM analysis")
     verbose: bool = Field(..., description="Enable verbose logging")
+    availability_check_enabled: bool = Field(..., description="Run pre-scan availability checks")
     
     model_config = {"extra": "forbid"}
 

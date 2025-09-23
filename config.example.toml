@@ -17,3 +17,4 @@ concurrency = 5
 [output]
 output_dir = "runs"
 verbose = true
+availability_check_enabled = true

@@ -38,6 +38,10 @@ class AppConfig(BaseModel):
     # Runtime flags
     dry_run: bool = Field(default=False, description="Skip LLM analysis")
     verbose: bool = Field(default=False, description="Enable verbose logging")
+    availability_check_enabled: bool = Field(
+        default=True,
+        description="Run pre-scan availability checks before screenshots",
+    )
 
     # Optional port scan (HTML-only; not persisted in results.json)
     port_scan_enabled: bool = Field(default=False, description="Enable ports scan and include in HTML report")
@@ -72,6 +76,8 @@ class AppConfig(BaseModel):
             "subfinder_bin": os.getenv("SNAPRECON_SUBFINDER_BIN", "subfinder"),
             "concurrency": int(os.getenv("SNAPRECON_CONCURRENCY", "5")),
             "verbose": os.getenv("SNAPRECON_VERBOSE", "").lower() == "true",
+            "availability_check_enabled": os.getenv("SNAPRECON_AVAILABILITY_CHECK", "true").lower()
+            not in {"0", "false", "no"},
         }
         # Merge config.toml if present
         config_path = Path(os.getenv("SNAPRECON_CONFIG", "config.toml"))
@@ -100,6 +106,10 @@ class AppConfig(BaseModel):
                 if out_dir:
                     cfg["output_dir"] = Path(out_dir)
                 cfg["verbose"] = bool(output.get("verbose", cfg["verbose"]))
+
+                availability = output.get("availability_check_enabled")
+                if availability is not None:
+                    cfg["availability_check_enabled"] = bool(availability)
             except Exception:
                 # Fall back silently to env/defaults if toml invalid
                 pass

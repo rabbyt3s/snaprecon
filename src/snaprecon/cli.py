@@ -11,7 +11,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from .config import AppConfig
-from .discover import resolve_targets
+from .discover import resolve_targets, resolve_targets_from_scope
 from .browser import screenshot_many
 from .analysis import LocalKeywordAnalyzer
 from .reporting import write_results_and_reports
@@ -28,6 +28,12 @@ console = Console()
 def run(
     domain: Optional[str] = typer.Option(None, "--domain", "-d", help="Domain to discover subdomains for"),
     input_file: Optional[str] = typer.Option(None, "--input-file", "-i", help="File containing target hosts (one per line)"),
+    domains_file: Optional[str] = typer.Option(
+        None,
+        "--domains-file",
+        help="Path to domains.txt containing targets (short for --input-file)",
+        show_default=False,
+    ),
     scope_file: str = typer.Option(..., "--scope-file", "-s", help="File containing allowed domains/suffixes"),
     output_dir: str = typer.Option("runs", "--output-dir", "-o", help="Output directory for results"),
     gemini_model: Optional[str] = typer.Option(None, "--model", "-m", help="Gemini model to use (overrides config.toml)"),
@@ -41,6 +47,11 @@ def run(
     subfinder_bin: str = typer.Option("subfinder", "--subfinder-bin", help="Path to subfinder binary"),
     enable_port_scan: bool = typer.Option(False, "--enable-port-scan", help="Include an 'Open Ports' section in the HTML report"),
     port_ranges: str = typer.Option("80,443", "--port-ranges", help="Comma-separated port tokens/ranges to scan (e.g., 80,443,8080-8090)"),
+    skip_availability_check: bool = typer.Option(
+        False,
+        "--skip-availability-check",
+        help="Disable pre-scan availability checks before screenshots",
+    ),
 ):
     """Main entry: discover → port scan → screenshot → analyze → report."""
     
@@ -66,6 +77,7 @@ def run(
             subfinder_bin=subfinder_bin,
             port_scan_enabled=enable_port_scan,
             port_ranges=port_ranges_list,
+            availability_check_enabled=not skip_availability_check,
         )
         
         console.print(f"[bold blue]SnapRecon[/bold blue] - Starting reconnaissance run")
@@ -85,9 +97,29 @@ def run(
             if domain:
                 targets = resolve_targets(config=config, domain=domain)
                 progress.update(task, description=f"Discovered {len(targets)} targets from {domain}")
+            elif domains_file:
+                file_path = Path(domains_file)
+                targets = resolve_targets(config=config, input_file=str(file_path))
+                progress.update(task, description=f"Loaded {len(targets)} targets from {file_path}")
+            elif input_file:
+                file_path = Path(input_file)
+                targets = resolve_targets(config=config, input_file=str(file_path))
+                progress.update(task, description=f"Loaded {len(targets)} targets from {file_path}")
             else:
-                targets = resolve_targets(config=config, input_file=input_file)
-                progress.update(task, description=f"Loaded {len(targets)} targets from file")
+                default_domains = Path("domains.txt")
+                if default_domains.exists():
+                    targets = resolve_targets(config=config, input_file=str(default_domains))
+                    progress.update(
+                        task,
+                        description=f"Loaded {len(targets)} targets from {default_domains}",
+                    )
+                    console.print(
+                        f"[yellow]Using default domains file:[/yellow] {default_domains.resolve()}"
+                    )
+                else:
+                    # Fallback: use scope file both as scope and as seeds/hosts list
+                    targets = resolve_targets_from_scope(config=config, scope_file=scope_file)
+                    progress.update(task, description=f"Resolved {len(targets)} targets from scope file seeds")
         
         # Enforce scope
         console.print(f"[yellow]Enforcing scope from:[/yellow] {scope_file}")
@@ -95,19 +127,34 @@ def run(
         console.print(f"[green]✓[/green] {len(targets)} targets in scope")
         
         # No in-pipeline port scan; sidecar runs post-report if enabled
-        
-        # Take screenshots
+
+        # Optionally filter targets by availability before screenshots
+        targets_to_process = targets
+        if config.availability_check_enabled:
+            console.print("[yellow]Checking availability before screenshots...[/yellow]")
+            from .browser import test_domain_resolution
+
+            availability_candidates = [
+                Target(host=t.host, domain=t.domain, subdomain=t.subdomain)
+                for t in targets
+            ]
+            targets_to_process = asyncio.run(test_domain_resolution(availability_candidates, config))
+            if not targets_to_process:
+                console.print("[red]No targets passed availability checks. Exiting.[/red]")
+                raise typer.Exit(1)
+            console.print(f"[green]✓[/green] {len(targets_to_process)} targets passed availability check")
+
         console.print(f"[yellow]Taking screenshots...[/yellow]")
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             console=console
         ) as progress:
-            task = progress.add_task("Processing targets...", total=len(targets))
-            
+            task = progress.add_task("Processing targets...", total=len(targets_to_process))
+
             # Take screenshots
-            targets = asyncio.run(screenshot_many(targets, config))
-            
+            targets = asyncio.run(screenshot_many(targets_to_process, config))
+
             # Update progress
             successful = len([t for t in targets if t.metadata and t.metadata.screenshot_path])
             failed = len([t for t in targets if t.error])
@@ -154,6 +201,7 @@ def run(
                 concurrency=config.concurrency,
                 dry_run=config.dry_run,
                 verbose=config.verbose,
+                availability_check_enabled=config.availability_check_enabled,
             ),
             targets=targets,
             total_cost_usd=sum(t.llm_result.cost_usd for t in targets if t.llm_result),
@@ -421,7 +469,8 @@ def test(
             subfinder_bin=config.subfinder_bin,
             concurrency=config.concurrency,
             dry_run=config.dry_run,
-            verbose=config.verbose
+            verbose=config.verbose,
+            availability_check_enabled=config.availability_check_enabled,
         )
         
         results = RunResult(
@@ -475,6 +524,12 @@ def test(
 def quick(
     domain: Optional[str] = typer.Option(None, "--domain", "-d", help="Domain to discover subdomains for"),
     input_file: Optional[str] = typer.Option(None, "--input-file", "-i", help="File containing target hosts (one per line)"),
+    domains_file: Optional[str] = typer.Option(
+        None,
+        "--domains-file",
+        help="Path to domains.txt containing targets (short for --input-file)",
+        show_default=False,
+    ),
     output_dir: str = typer.Option("runs", "--output-dir", "-o", help="Output directory for results"),
     gemini_model: Optional[str] = typer.Option(None, "--model", "-m", help="Gemini model to use (overrides config.toml)"),
     max_cost: float = typer.Option(10.0, "--max-cost", help="Maximum cost in USD"),
@@ -487,6 +542,11 @@ def quick(
     subfinder_bin: str = typer.Option("subfinder", "--subfinder-bin", help="Path to subfinder binary"),
     enable_port_scan: bool = typer.Option(False, "--enable-port-scan", help="Include an 'Open Ports' section in the HTML report"),
     port_ranges: str = typer.Option("80,443", "--port-ranges", help="Comma-separated port tokens/ranges (e.g., 80,443,8080-8090)"),
+    skip_availability_check: bool = typer.Option(
+        False,
+        "--skip-availability-check",
+        help="Disable pre-scan availability checks before screenshots",
+    ),
 ):
     """Quick reconnaissance without scope file - automatically filters to resolving domains only."""
     
@@ -512,13 +572,17 @@ def quick(
             subfinder_bin=subfinder_bin,
             port_scan_enabled=enable_port_scan,
             port_ranges=port_ranges_list,
+            availability_check_enabled=not skip_availability_check,
         )
         
         console.print(f"[bold blue]SnapRecon Quick Mode[/bold blue] - No scope file required")
         console.print(f"Output directory: [green]{config.run_dir}[/green]")
         if enable_port_scan:
             console.print(f"[yellow]Ports sidecar enabled[/yellow] - Ports: {port_ranges}")
-        console.print(f"[yellow]Note:[/yellow] Only domains that return a working HTTP response (2xx/3xx/401/403) will be processed")
+        if config.availability_check_enabled:
+            console.print(f"[yellow]Note:[/yellow] Only domains that return a working HTTP response (2xx/3xx/401/403) will be processed")
+        else:
+            console.print(f"[yellow]Availability checks disabled[/yellow] - all listed targets will be processed")
         
         # Resolve targets
         with Progress(
@@ -532,26 +596,42 @@ def quick(
                 targets = resolve_targets(config=config, domain=domain)
                 progress.update(task, description=f"Discovered {len(targets)} targets from {domain}")
             else:
-                targets = resolve_targets(config=config, input_file=input_file)
-                progress.update(task, description=f"Loaded {len(targets)} targets from file")
+                file_arg = domains_file or input_file
+                file_path: Path
+                if file_arg:
+                    file_path = Path(file_arg)
+                else:
+                    default_domains = Path("domains.txt")
+                    if not default_domains.exists():
+                        console.print("[red]Error:[/red] Provide --domain, --domains-file, --input-file, or place domains.txt in the working directory")
+                        raise typer.Exit(1)
+                    file_path = default_domains
+                    console.print(f"[yellow]Using default domains file:[/yellow] {file_path.resolve()}")
+
+                targets = resolve_targets(config=config, input_file=str(file_path))
+                progress.update(task, description=f"Loaded {len(targets)} targets from {file_path}")
         
         # No in-pipeline port scan
+        targets_to_process = targets
+        if config.availability_check_enabled:
+            console.print(f"[yellow]Discovered {len(targets)} targets - testing availability...[/yellow]")
 
-        console.print(f"[yellow]Discovered {len(targets)} targets - testing availability...[/yellow]")
+            # Test domain resolution using lightweight HTTP checks (no browser)
+            from .browser import test_domain_resolution
 
-        # Test domain resolution using lightweight HTTP checks (no browser)
-        from .browser import test_domain_resolution
-        targets_for_availability = [
-            Target(host=t.host, domain=t.domain, subdomain=t.subdomain)
-            for t in targets
-        ]
-        resolving_targets = asyncio.run(test_domain_resolution(targets_for_availability, config))
-        
-        console.print(f"[green]✓[/green] {len(resolving_targets)} targets returned a working HTTP response")
-        
-        if not resolving_targets:
-            console.print("[red]No targets returned a working HTTP response. Exiting.[/red]")
-            raise typer.Exit(1)
+            targets_for_availability = [
+                Target(host=t.host, domain=t.domain, subdomain=t.subdomain)
+                for t in targets
+            ]
+            targets_to_process = asyncio.run(test_domain_resolution(targets_for_availability, config))
+
+            console.print(f"[green]✓[/green] {len(targets_to_process)} targets returned a working HTTP response")
+
+            if not targets_to_process:
+                console.print("[red]No targets returned a working HTTP response. Exiting.[/red]")
+                raise typer.Exit(1)
+        else:
+            console.print(f"[yellow]Processing {len(targets)} targets without availability checks...[/yellow]")
         
         # Take screenshots
         console.print(f"[yellow]Taking screenshots...[/yellow]")
@@ -560,10 +640,10 @@ def quick(
             TextColumn("[progress.description]{task.description}"),
             console=console
         ) as progress:
-            task = progress.add_task("Processing targets...", total=len(resolving_targets))
+            task = progress.add_task("Processing targets...", total=len(targets_to_process))
             
-            # Take screenshots (use the same resolved targets list as availability step)
-            targets = asyncio.run(screenshot_many(resolving_targets, config))
+            # Take screenshots
+            targets = asyncio.run(screenshot_many(targets_to_process, config))
             
             # Update progress
             successful = len([t for t in targets if t.metadata and t.metadata.screenshot_path])
@@ -615,6 +695,7 @@ def quick(
             concurrency=config.concurrency,
             dry_run=config.dry_run,
             verbose=config.verbose,
+            availability_check_enabled=config.availability_check_enabled,
         )
 
         results = RunResult(
@@ -629,7 +710,7 @@ def quick(
         ports_map = None
         scanned_ports = None
         if enable_port_scan:
-            unique_hosts = sorted({t.host for t in resolving_targets})
+            unique_hosts = sorted({t.host for t in targets_to_process})
             console.print(f"[yellow]Scanning ports (sidecar)...[/yellow]")
             with Progress(
                 SpinnerColumn(),
@@ -655,8 +736,11 @@ def quick(
         summary_table.add_column("Metric", style="cyan")
         summary_table.add_column("Value", style="green")
         
-        summary_table.add_row("Total Discovered", str(len(resolving_targets)))
-        summary_table.add_row("Successfully Resolved", str(len(resolving_targets)))
+        summary_table.add_row("Targets Loaded", str(len(targets)))
+        if config.availability_check_enabled:
+            summary_table.add_row("Passed Availability", str(len(targets_to_process)))
+        else:
+            summary_table.add_row("Availability Checks", "Skipped")
         summary_table.add_row("Successful Screenshots", str(success_count))
         summary_table.add_row("Failed Screenshots", str(error_count))
         if not dry_run:

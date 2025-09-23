@@ -82,6 +82,9 @@ verbose = false
 # Full reconnaissance with scope file
 snaprecon run --domain example.com --scope-file scope.txt
 
+# Use existing domains file and skip availability pre-checks
+snaprecon run --domains-file domains.txt --scope-file scope.txt --skip-availability-check
+
 # Quick reconnaissance (no scope file, auto-filtering)
 snaprecon quick --domain example.com --concurrency 10
 
