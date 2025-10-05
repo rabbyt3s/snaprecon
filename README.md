@@ -4,6 +4,8 @@
 
 SnapRecon is a Linux-first reconnaissance CLI that automates discovery, screenshot capture, and lightweight heuristic analysis for authorized assessments. It integrates Playwright/Chromium, `subfinder`, and a deterministic reporting pipeline to deliver repeatable results you can archive or feed into downstream tooling.
 
+![demo](https://github.com/user-attachments/assets/0956255f-f32c-4454-9d91-31e442297255)
+
 ## Built With
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](#requirements)
 [![Typer](https://img.shields.io/badge/Typer-CLI-2962FF?logo=typer&logoColor=white)](#cli-overview)
@@ -68,6 +70,8 @@ Run `snaprecon --help` for the full command surface. Frequently used options:
 - `--dry-run` — skip keyword analysis and capture screenshots only
 - `--debug` — emit verbose logs with Playwright details
 
+<img width="1452" height="550" alt="image" src="https://github.com/user-attachments/assets/1a405ec2-1b11-4add-a314-08ae0521a6fb" />
+
 ## Output Layout
 Each run creates `runs/YYYYMMDD_HHMMSS/` containing:
 - `results.json` — Pydantic-validated summary with safe configuration and per-target metadata
@@ -101,7 +105,7 @@ When analysis is enabled (the default), SnapRecon tags snapshots using heuristic
 - Empty screenshots: re-run with `--debug` to view Playwright logs.
 
 ## Contributing
-Contributions are welcome. Fork the repository, branch from `main`, add tests alongside changes, and submit a pull request. Review `SECURITY.md` for the disclosure policy.
+Contributions are welcome. Fork the repository, branch from `main`, add tests alongside changes, and submit a pull request. 
 
 ## License
 Released under the MIT License. Refer to `LICENSE` for the full text.
