@@ -1,10 +1,14 @@
+<div align="center">
+
 # SnapRecon
 
 <img width="600" height="200" alt="SnapRecon banner" src="https://github.com/user-attachments/assets/735ee8d4-9aef-41d5-8c67-88609325de2e" />
 
-SnapRecon is a Linux-first reconnaissance CLI that automates discovery, screenshot capture, and lightweight heuristic analysis for authorized assessments. It integrates Playwright/Chromium, `subfinder`, and a deterministic reporting pipeline to deliver repeatable results you can archive or feed into downstream tooling.
 
+SnapRecon is a **Linux-first reconnaissance CLI** that automates discovery, screenshot capture, and lightweight heuristic analysis for authorized assessments. It integrates Playwright/Chromium, `subfinder`, and a deterministic reporting pipeline to deliver repeatable results you can archive or feed into downstream tooling.
 ![demo](https://github.com/user-attachments/assets/0956255f-f32c-4454-9d91-31e442297255)
+
+</div>
 
 ## Built With
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](#requirements)
@@ -109,3 +113,4 @@ Contributions are welcome. Fork the repository, branch from `main`, add tests al
 
 ## License
 Released under the MIT License. Refer to `LICENSE` for the full text.
+
