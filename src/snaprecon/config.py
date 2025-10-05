@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 import toml
@@ -17,41 +17,22 @@ class AppConfig(BaseModel):
     output_dir: Path = Field(default=Path("runs"), description="Output directory for results")
     run_dir: Optional[Path] = Field(None, description="Current run directory")
     
-    # Gemini settings
-    gemini_model: str = Field(default="gemini-2.5-flash", description="Gemini model to use")
-    google_api_key: str = Field(..., description="Google API key for Gemini")
-    max_cost_usd: float = Field(default=10.0, ge=0.0, description="Maximum cost in USD")
-    
     # Browser settings
     user_agent: str = Field(
         default="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         description="User agent string"
     )
-    proxy: Optional[str] = Field(None, description="Proxy URL if needed")
     timeout_ms: int = Field(default=30000, ge=1000, description="Page timeout in milliseconds")
     fullpage: bool = Field(default=False, description="Take full page screenshots")
     
     # Discovery settings
     subfinder_bin: str = Field(default="subfinder", description="Path to subfinder binary")
     concurrency: int = Field(default=5, ge=1, le=20, description="Concurrent operations")
+    headless: bool = Field(default=True, description="Run Chromium in headless mode")
     
     # Runtime flags
-    dry_run: bool = Field(default=False, description="Skip LLM analysis")
-    verbose: bool = Field(default=False, description="Enable verbose logging")
-    availability_check_enabled: bool = Field(
-        default=True,
-        description="Run pre-scan availability checks before screenshots",
-    )
-
-    # Optional port scan (HTML-only; not persisted in results.json)
-    port_scan_enabled: bool = Field(default=False, description="Enable ports scan and include in HTML report")
-    port_ranges: List[str] = Field(default_factory=list, description="Port tokens/ranges to scan (e.g., 80,443,8080-8090)")
-    
-    @field_validator("google_api_key")
-    @classmethod
-    def validate_api_key(cls, v: str) -> str:
-        """Allow empty API key for local analysis mode."""
-        return v or ""
+    dry_run: bool = Field(default=False, description="Skip keyword analysis")
+    debug: bool = Field(default=False, description="Enable debug logging")
     
     @field_validator("output_dir")
     @classmethod
@@ -65,19 +46,14 @@ class AppConfig(BaseModel):
         """Create config from environment variables and optional config.toml."""
         # Start with defaults/env
         cfg = {
-            "google_api_key": os.getenv("GOOGLE_API_KEY", ""),
-            "gemini_model": os.getenv("SNAPRECON_MODEL", "gemini-2.5-flash"),
-            "max_cost_usd": float(os.getenv("SNAPRECON_MAX_COST", "10.0")),
             "output_dir": Path(os.getenv("SNAPRECON_OUTPUT_DIR", "runs")),
             "user_agent": os.getenv("SNAPRECON_USER_AGENT", ""),
-            "proxy": os.getenv("SNAPRECON_PROXY"),
             "timeout_ms": int(os.getenv("SNAPRECON_TIMEOUT_MS", "30000")),
             "fullpage": os.getenv("SNAPRECON_FULLPAGE", "").lower() == "true",
             "subfinder_bin": os.getenv("SNAPRECON_SUBFINDER_BIN", "subfinder"),
             "concurrency": int(os.getenv("SNAPRECON_CONCURRENCY", "5")),
-            "verbose": os.getenv("SNAPRECON_VERBOSE", "").lower() == "true",
-            "availability_check_enabled": os.getenv("SNAPRECON_AVAILABILITY_CHECK", "true").lower()
-            not in {"0", "false", "no"},
+            "headless": os.getenv("SNAPRECON_HEADLESS", "true").lower() not in {"0", "false", "no"},
+            "debug": os.getenv("SNAPRECON_DEBUG", "").lower() == "true",
         }
         # Merge config.toml if present
         config_path = Path(os.getenv("SNAPRECON_CONFIG", "config.toml"))
@@ -85,19 +61,16 @@ class AppConfig(BaseModel):
             try:
                 data = toml.loads(config_path.read_text())
                 # Map sections → fields
-                gemini = data.get("gemini", {})
                 browser = data.get("browser", {})
                 discovery = data.get("discovery", {})
                 output = data.get("output", {})
-
-                cfg["gemini_model"] = gemini.get("model", cfg["gemini_model"]) or cfg["gemini_model"]
-                cfg["max_cost_usd"] = float(gemini.get("max_cost_usd", cfg["max_cost_usd"]))
 
                 ua = browser.get("user_agent")
                 if ua:
                     cfg["user_agent"] = ua
                 cfg["timeout_ms"] = int(browser.get("timeout_ms", cfg["timeout_ms"]))
                 cfg["fullpage"] = bool(browser.get("fullpage", cfg["fullpage"]))
+                cfg["headless"] = bool(browser.get("headless", cfg["headless"]))
 
                 cfg["subfinder_bin"] = discovery.get("subfinder_bin", cfg["subfinder_bin"]) or cfg["subfinder_bin"]
                 cfg["concurrency"] = int(discovery.get("concurrency", cfg["concurrency"]))
@@ -105,11 +78,8 @@ class AppConfig(BaseModel):
                 out_dir = output.get("output_dir")
                 if out_dir:
                     cfg["output_dir"] = Path(out_dir)
-                cfg["verbose"] = bool(output.get("verbose", cfg["verbose"]))
+                cfg["debug"] = bool(output.get("debug", cfg["debug"]))
 
-                availability = output.get("availability_check_enabled")
-                if availability is not None:
-                    cfg["availability_check_enabled"] = bool(availability)
             except Exception:
                 # Fall back silently to env/defaults if toml invalid
                 pass

@@ -4,14 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 from contextlib import suppress
-from typing import List, Optional
-from urllib.parse import urljoin
+from typing import Callable, List, Optional
 
 from playwright.async_api import async_playwright, Browser, Page
-import httpx
-
 from .errors import NavigationError
 from .models import Target, Metadata
 from .config import AppConfig
@@ -36,16 +32,10 @@ class BrowserManager:
             "--disable-dev-shm-usage",
             "--disable-gpu",
             "--disable-web-security",
-            "--disable-features=VizDisplayCompositor"
+            "--disable-features=VizDisplayCompositor",
         ]
-        
-        if self.config.proxy:
-            browser_args.append(f"--proxy-server={self.config.proxy}")
-        
-        self.browser = await self.playwright.chromium.launch(
-            headless=True,
-            args=browser_args
-        )
+
+        self.browser = await self.playwright.chromium.launch(headless=True, args=browser_args)
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -166,7 +156,7 @@ async def screenshot_target(target: Target, page: Page, config: AppConfig) -> Ta
                 timeout=10.0  # 10 second timeout for screenshot
             )
         except asyncio.TimeoutError:
-            logger.warning(f"Screenshot timeout for {target.host}")
+            logger.debug(f"Screenshot timeout for {target.host}")
             target.error = NavigationError(
                 "Screenshot capture timed out",
                 code="SCREENSHOT_CAPTURE_TIMEOUT"
@@ -185,7 +175,7 @@ async def screenshot_target(target: Target, page: Page, config: AppConfig) -> Ta
             screenshot_size=screenshot_size
         )
         
-        logger.info(f"Screenshot taken for {target.host}: {screenshot_path}")
+        logger.debug(f"Screenshot taken for {target.host}: {screenshot_path}")
         
     except Exception as e:
         logger.error(f"Failed to screenshot {target.host}: {e}")
@@ -197,151 +187,93 @@ async def screenshot_target(target: Target, page: Page, config: AppConfig) -> Ta
     return target
 
 
-async def screenshot_many(targets: List[Target], config: AppConfig) -> List[Target]:
+async def screenshot_many(
+    targets: List[Target],
+    config: AppConfig,
+    progress_callback: Optional[Callable[[Target], None]] = None,
+) -> List[Target]:
     """Take screenshots of multiple targets with concurrency control and timeout protection."""
-    semaphore = asyncio.Semaphore(config.concurrency)
-    
-    async def screenshot_with_semaphore(target: Target) -> Target:
+
+    semaphore = asyncio.Semaphore(max(config.concurrency, 1))
+
+    async def process_target(index: int, target: Target, browser_mgr: BrowserManager) -> tuple[int, Target]:
         async with semaphore:
-            async with BrowserManager(config) as browser_mgr:
-                page = await browser_mgr.create_page()
+            page = await browser_mgr.create_page()
+            try:
                 try:
-                    # Add timeout protection for each individual screenshot
-                    return await asyncio.wait_for(
+                    result = await asyncio.wait_for(
                         screenshot_target(target, page, config),
-                        timeout=(config.timeout_ms / 1000.0) + 10  # Add 10 seconds buffer
+                        timeout=(config.timeout_ms / 1000.0) + 10,
                     )
                 except asyncio.TimeoutError:
-                    logger.warning(f"Timeout taking screenshot of {target.host}")
+                    logger.debug(f"Timeout taking screenshot of {target.host}")
                     target.error = NavigationError(
                         f"Screenshot timeout after {config.timeout_ms}ms",
-                        code="SCREENSHOT_TIMEOUT"
+                        code="SCREENSHOT_TIMEOUT",
                     )
-                    return target
-                except asyncio.CancelledError as e:
-                    logger.warning(f"Screenshot task cancelled for {target.host}: {e}")
+                    result = target
+                except asyncio.CancelledError as exc:
+                    logger.debug(f"Screenshot task cancelled for {target.host}: {exc}")
                     target.error = NavigationError(
                         "Screenshot task was cancelled",
-                        code="SCREENSHOT_CANCELLED"
+                        code="SCREENSHOT_CANCELLED",
                     )
-                    return target
-                except Exception as e:
-                    logger.error(f"Error taking screenshot of {target.host}: {e}")
+                    result = target
+                except Exception as exc:  # pylint: disable=broad-except
+                    logger.error(f"Error taking screenshot of {target.host}: {exc}")
                     target.error = NavigationError(
-                        f"Screenshot failed: {e}",
-                        code="SCREENSHOT_ERROR"
+                        f"Screenshot failed: {exc}",
+                        code="SCREENSHOT_ERROR",
                     )
-                    return target
-                finally:
-                    with suppress(Exception, asyncio.CancelledError):
-                        await page.close()
-    
-    # Process targets concurrently with overall timeout
-    tasks = [screenshot_with_semaphore(target) for target in targets]
-    
-    try:
-        # Add overall timeout to prevent indefinite hanging
-        overall_timeout = (config.timeout_ms / 1000.0 * len(targets)) + 60  # Add 60 seconds buffer
-        results = await asyncio.wait_for(
-            asyncio.gather(*tasks, return_exceptions=True),
-            timeout=overall_timeout
-        )
-    except asyncio.TimeoutError:
-        logger.error(f"Overall screenshot process timed out after {overall_timeout}s")
-        # Cancel remaining tasks and return what we have
-        for task in tasks:
-            if not task.done():
-                task.cancel()
-        
-        # Return targets with timeout errors
-        for target in targets:
-            if not hasattr(target, 'error') or target.error is None:
-                target.error = NavigationError(
-                    "Screenshot process timed out",
-                    code="OVERALL_TIMEOUT"
-                )
-        return targets
-    
-    # Handle any exceptions that occurred
-    processed_targets = []
-    for i, result in enumerate(results):
-        if isinstance(result, BaseException):
-            logger.error(f"Error processing target {targets[i].host}: {result}")
-            targets[i].error = NavigationError(
-                f"Processing failed: {result}",
-                code="PROCESSING_ERROR"
-            )
-            processed_targets.append(targets[i])
+                    result = target
+            finally:
+                with suppress(Exception, asyncio.CancelledError):
+                    await page.close()
+
+        return index, result
+
+    if not targets:
+        return []
+
+    overall_timeout = (config.timeout_ms / 1000.0 * len(targets)) + 60
+
+    async with BrowserManager(config) as browser_mgr:
+        tasks = [
+            asyncio.create_task(process_target(index, target, browser_mgr))
+            for index, target in enumerate(targets)
+        ]
+
+        results: List[Optional[Target]] = [None] * len(targets)
+
+        try:
+            for coro in asyncio.as_completed(tasks, timeout=overall_timeout):
+                index, target = await coro
+                results[index] = target
+                if progress_callback:
+                    progress_callback(target)
+        except asyncio.TimeoutError:
+            logger.error(f"Overall screenshot process timed out after {overall_timeout}s")
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+            for idx, existing in enumerate(results):
+                if existing is None:
+                    timed_out_target = targets[idx]
+                    timed_out_target.error = NavigationError(
+                        "Screenshot process timed out",
+                        code="OVERALL_TIMEOUT",
+                    )
+                    results[idx] = timed_out_target
+
         else:
-            processed_targets.append(result)
-    
-    return processed_targets
+            # Ensure all tasks are awaited to silence warnings
+            await asyncio.gather(*tasks, return_exceptions=True)
 
-
-async def test_domain_resolution(targets: List[Target], config: AppConfig) -> List[Target]:
-    """Ultra-fast availability check using HTTP HEAD/GET via httpx (no browser).
-
-    A target is considered working if it returns 2xx/3xx or 401/403 on HTTPS or HTTP.
-    """
-    total = len(targets)
-    logger.info(f"Testing resolution for {total} targets")
-
-    # Higher concurrency for network checks than for browser work, but stay reasonable
-    max_concurrency = min(max(config.concurrency * 10, config.concurrency), 100)
-    semaphore = asyncio.Semaphore(max_concurrency)
-
-    # Tight timeouts for speed (seconds)
-    max_ms = min(config.timeout_ms, 5000)
-    timeout = httpx.Timeout(connect=2.0, read=max_ms / 3000.0, write=2.0, pool=2.0)
-    limits = httpx.Limits(max_connections=max_concurrency * 2, max_keepalive_connections=max_concurrency)
-    default_headers = {"User-Agent": config.user_agent}
-
-    async def check_single(target: Target, client: httpx.AsyncClient) -> Target:
-        async with semaphore:
-            for scheme in ("https", "http"):
-                url = f"{scheme}://{target.host}"
-                try:
-                    # Try HEAD first
-                    resp = await client.head(url, follow_redirects=False)
-                    status = resp.status_code
-                    if status < 400 or status in (401, 403):
-                        return target
-                    # Some servers block HEAD → try lightweight GET with redirects
-                    if status in (405, 501):
-                        resp = await client.get(url, headers={"Range": "bytes=0-0"}, follow_redirects=True)
-                        status = resp.status_code
-                        if status < 400 or status in (401, 403):
-                            return target
-                except Exception as e:
-                    logger.debug(f"Availability check failed for {url}: {e}")
-                    continue
-            target.error = NavigationError(
-                "Domain did not return a working HTTP response",
-                code="DOMAIN_RESOLUTION_FAILED"
-            )
-            return target
-
-    async with httpx.AsyncClient(verify=False, timeout=timeout, limits=limits, headers=default_headers) as client:
-        results = await asyncio.gather(
-            *[check_single(t, client) for t in targets], return_exceptions=True
-        )
-
-    processed: List[Target] = []
-    for i, res in enumerate(results):
-        if isinstance(res, Exception):
-            logger.debug(f"Unexpected error testing {targets[i].host}: {res}")
-            targets[i].error = NavigationError(
-                f"Unexpected error during resolution test: {res}",
-                code="UNEXPECTED_ERROR"
-            )
-            processed.append(targets[i])
-        else:
-            processed.append(res)
-
-    resolving = [t for t in processed if not t.error]
-    failed = [t for t in processed if t.error]
-    logger.info(f"Resolution test complete: {len(resolving)} resolved, {len(failed)} failed")
-    return resolving
+        # Replace any None entries with originals (should not happen but safe guard)
+        return [result or targets[idx] for idx, result in enumerate(results)]
 
 
 if __name__ == "__main__":

@@ -1,263 +1,112 @@
 # SnapRecon
 
-A Python-based reconnaissance tool for authorized security testing that discovers subdomains, captures screenshots, and analyzes web applications using local keyword analysis. Optionally, it can scan common TCP ports and include the results in the HTML report without altering results.json.
+*Built and maintained by rabbyt3s for authorized recon workflows.*
 
-## Overview
+SnapRecon is a Python CLI that performs authorized reconnaissance end to end: it discovers targets, screenshots them with Playwright/Chromium, applies lightweight local heuristics, and ships a report you can hand to stakeholders. The tool is designed to run on Kali or any Linux box where you already vet your scope.
 
-SnapRecon automates the reconnaissance phase of security assessments by:
-- Discovering subdomains using `subfinder`
-- Taking screenshots of web applications via Playwright/Chromium
-- Analyzing page content using local keyword heuristics
-- Generating comprehensive HTML and Markdown reports
-
-## Features
-
-- **Subdomain Discovery**: Automatic subdomain enumeration via `subfinder`
-- **Screenshot Capture**: Headless browser automation with configurable timeouts
-- **Local Analysis**: Keyword-based tagging without external API calls
-- **Scope Validation**: Strict domain allowlist enforcement
-- **Multiple Outputs**: JSON, HTML, and Markdown report generation
-- **Concurrent Processing**: Configurable concurrency for performance
+## Why SnapRecon
+- One command from discovery to report: subfinder integration, screenshots, local tagging
+- Reports you can share: JSON for automation, Markdown/HTML for humans
+- Friendly UX: progress spinners, Rich-powered summaries, actionable errors
+- Safety first: scoped runs, deterministic denylisting, no credential or cookie capture
 
 ## Requirements
-
-- Python 3.8+
-- `subfinder` binary (Kali Linux or manual installation)
-- Playwright with Chromium browser
+- Python 3.11 or newer (virtual environments recommended)
+- Playwright with the Chromium browser runtime (`playwright install --with-deps chromium`)
+- `subfinder` on your PATH (installed via `apt`, `brew`, or the upstream release)
+- A scope file defining what you are authorized to scan (see below)
 
 ## Installation
-
 ```bash
-# Clone repository
+# Clone and install SnapRecon in editable mode
 git clone https://github.com/rabbyt3s/snaprecon.git
 cd snaprecon
-
-# Install dependencies
-pip install -r requirements.txt
+python -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -e .
 
 # Install Playwright browsers
 playwright install --with-deps chromium
 ```
 
+You can optionally install with `pipx install .` if you prefer isolated CLIs.
+
+## Quick Start
+1. **Create a scope file** describing allowed domains/hosts:
+   ```text
+   # scope.txt
+   example.com
+   *.example.net
+   admin.partner.example.org
+   ```
+2. **Run SnapRecon** with either a discovery seed (`--domain`) or a prepared host list (`--targets-file`). A scope file is required.
+   ```bash
+   snaprecon --domain example.com --scope-file scope.txt
+   ```
+3. **Open the report** from the timestamped run directory under `runs/`.
+
+If you see `Missing input: provide --domain or --targets-file. Run 'snaprecon --help' for usage details.`, pass one of the required inputs or run the help command for full CLI usage.
+
+## CLI Usage
+Run `snaprecon --help` for the latest options. Core flags include:
+- `--domain / --targets-file` – choose between discovery (subfinder) or ingesting a prepared list
+- `--scope-file` – mandatory allow-list of domains/hosts; targets outside scope are dropped
+- `--output-dir` – parent directory for timestamped runs (default `runs`)
+- `--concurrency` – browser worker count (1-20)
+- `--timeout` – per-target navigation timeout in milliseconds
+- `--fullpage` – capture full-page screenshots
+- `--dry-run` – skip local analysis while still capturing screenshots
+- `--debug` – enable verbose logging to the terminal
+
+Example: ingest a curated list, run in headed mode for debugging, and keep costs low by skipping analysis.
+```bash
+snaprecon --targets-file scope_hosts.txt --scope-file scope.txt --headed --dry-run
+```
+
+## Output
+Each run creates `runs/YYYYMMDD_HHMMSS/` containing:
+- `results.json` – Pydantic-validated run data (safe config, per-target metadata, analysis)
+- `report.md` – quick summary for chat tools or issue trackers
+- `report.html` – rich, filterable report with thumbnails and open-port highlights
+- `screenshots/` – full-resolution PNGs named after the host
+
+JSON serialization is stable and extra fields are rejected, so downstream tooling can rely on the schema.
+
 ## Configuration
+SnapRecon reads values from environment variables first, then an optional TOML file (see `config.example.toml`). Useful knobs:
+- `SNAPRECON_OUTPUT_DIR`, `SNAPRECON_CONCURRENCY`, `SNAPRECON_TIMEOUT_MS`
+- `SNAPRECON_USER_AGENT`, `SNAPRECON_FULLPAGE`, `SNAPRECON_HEADLESS`
+- `SNAPRECON_SUBFINDER_BIN` to point to a custom binary path
 
-### Environment Variables (optional)
+To persist settings, copy `config.example.toml` to `config.toml` and tweak as needed.
 
-```bash
-# These are legacy knobs for cost estimation; local analysis does not require an API key.
-# Leave GOOGLE_API_KEY empty for local analysis.
-export GOOGLE_API_KEY=""
-export SNAPRECON_MODEL="local-keyword"
-export SNAPRECON_MAX_COST="0.0"
-export SNAPRECON_OUTPUT_DIR="runs"
-export SNAPRECON_CONCURRENCY="5"
-```
+## Local Keyword Analysis
+When not running in `--dry-run`, SnapRecon tags each page using heuristics driven by titles, URLs, and hostnames. Tags such as `admin`, `vpn`, `devops`, or `api` help you triage interesting surfaces quickly—without sending data to external LLMs.
 
-### Configuration File (config.toml)
-
-```toml
-[gemini]
-model = "gemini-2.5-flash"
-max_cost_usd = 10.0
-
-[browser]
-user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-timeout_ms = 30000
-fullpage = false
-
-[discovery]
-subfinder_bin = "subfinder"
-concurrency = 5
-
-[output]
-output_dir = "runs"
-verbose = false
-```
-
-## Usage
-
-### Basic Commands
-
-```bash
-# Full reconnaissance with scope file
-snaprecon run --domain example.com --scope-file scope.txt
-
-# Use existing domains file and skip availability pre-checks
-snaprecon run --domains-file domains.txt --scope-file scope.txt --skip-availability-check
-
-# Quick reconnaissance (no scope file, auto-filtering)
-snaprecon quick --domain example.com --concurrency 10
-
-# Test run with limited targets
-snaprecon test --domain example.com --scope-file scope.txt --test-count 5
-
-# Cost estimation
-snaprecon estimate --domain example.com
-
-# Scope file validation
-snaprecon validate --scope-file scope.txt
-```
-
-### Advanced Options
-
-```bash
-# Full page screenshots
-snaprecon run --domain example.com --scope-file scope.txt --fullpage
-
-# Custom timeout and concurrency
-snaprecon run --domain example.com --scope-file scope.txt --timeout 60000 --concurrency 10
-
-# Proxy support
-snaprecon run --domain example.com --scope-file scope.txt --proxy "http://proxy:8080"
-
-# Dry run (skip analysis)
-snaprecon run --domain example.com --scope-file scope.txt --dry-run
-
-# Verbose logging
-snaprecon run --domain example.com --scope-file scope.txt --verbose
-
-# Include Open Ports in HTML report (optional)
-snaprecon quick --domain example.com --enable-port-scan --port-ranges "80,443,8080-8083,8443,8000,8888"
-```
-
-## Scope File Format
-
-Create a scope file with allowed domains and suffixes:
-
-```text
-# Allowed domains
-example.com
-test.example.com
-
-# Allowed suffixes (matches any subdomain)
-.example.org
-.test.com
-
-# Comments are ignored
-```
-
-## Output Structure
-
-```
-runs/
-├── 20241201_143022/          # Timestamped run directory
-│   ├── results.json          # Structured results data
-│   ├── report.html           # Interactive HTML report
-│   ├── report.md             # Markdown report
-│   └── screenshots/          # PNG screenshots
-```
-
-## Architecture
-
-### Core Components
-
-- **CLI Interface**: Typer-based command-line interface
-- **Discovery**: Subdomain enumeration and target resolution
-- **Browser Automation**: Playwright-based screenshot capture
-- **Analysis**: Local keyword-based content analysis
-- **Reporting**: Jinja2 template-based report generation
-- **Safety**: Scope validation and denylist support
-
-### Data Models
-
-- **Target**: Individual host with metadata and analysis results
-- **RunResult**: Complete reconnaissance run data
-- **SafeConfig**: Non-sensitive configuration for storage
-- **Error**: Structured error handling and reporting
-
-## Local Analysis
-
-The tool uses local keyword analysis to categorize web pages:
-
-- **Authentication**: login, auth, sso, keycloak
-- **Administration**: admin, backoffice, wp-admin
-- **Infrastructure**: vpn, monitoring, devops, kubernetes
-- **Services**: jenkins, gitlab, jira, confluence
-- **Databases**: phpmyadmin, pgadmin, mongodb
-- **Security**: vault, guard, shield
-
-Analysis is performed locally without external API calls, ensuring privacy and zero cost. When port scanning is enabled, a lightweight TCP connect-only scan is run and results are shown only in the HTML report.
-
-## Safety Features
-
-- **Scope Enforcement**: Mandatory domain allowlist validation
-- **Denylist Support**: Optional domain blocking
-- **Rate Limiting**: Configurable concurrency and timeouts
-- **Error Handling**: Comprehensive error reporting and logging
-- **Dry Run Mode**: Test configuration without analysis
-
-## Performance
-
-- **Concurrent Processing**: Configurable concurrency (1-20)
-- **Timeout Protection**: Per-target and overall timeouts
-- **Resource Management**: Efficient browser instance handling
-- **Memory Optimization**: Streaming screenshot processing
+## Safety & Ethics
+- Always provide a valid scope file; SnapRecon refuses to proceed when the file is missing or empty.
+- Targets outside your scope or in a denylist are skipped with explicit logging.
+- Playwright sessions never persist cookies, local storage, or credentials to disk.
+- Respect rate limits and legal boundaries—only run SnapRecon where you have written permission.
 
 ## Troubleshooting
-
-### Common Issues
-
-1. **Subfinder not found**: Install `subfinder` or specify path with `--subfinder-bin`
-2. **Browser launch failures**: Ensure Playwright is installed with `playwright install --with-deps chromium`
-3. **Permission errors**: Check file permissions for output directories
-4. **Timeout issues**: Adjust `--timeout` and `--concurrency` values
-
-### Debug Mode
-
-Enable verbose logging for troubleshooting:
-
-```bash
-snaprecon run --domain example.com --scope-file scope.txt --verbose
-```
+- **`subfinder` not found** – install the binary or point `--subfinder-bin` to its location.
+- **Chromium fails to launch** – rerun `playwright install --with-deps chromium` and ensure you have required system libraries.
+- **Timeouts** – raise `--timeout` or lower `--concurrency` for high-latency targets.
+- **Missing screenshots** – inspect `runs/<timestamp>/screenshots/` and rerun with `--debug` for verbose logs.
 
 ## Development
-
-### Project Structure
-
-```
-src/snaprecon/
-├── cli.py           # Command-line interface
-├── config.py        # Configuration management
-├── models.py        # Data models and validation
-├── discover.py      # Subdomain discovery
-├── browser.py       # Browser automation
-├── analysis.py      # Local keyword analysis
-├── reporting.py     # Report generation
-├── cost.py          # Cost management (legacy)
-├── safety.py        # Scope validation
-└── utils.py         # Utility functions
-```
-
-### Testing
-
 ```bash
-# Run tests
-pytest
+# Run linting and tests
+ruff check src
+pytest -q
 
-# Run with coverage
-pytest --cov=src/snaprecon
-
-# Run specific test categories
-pytest tests/unit/
-pytest tests/integration/
+# Format code
+ruff format src
 ```
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Submit a pull request
+Contributions are welcome: fork, branch, add tests, and open a PR. See `SECURITY.md` for the vulnerability disclosure policy.
 
 ## License
-
-MIT License - see LICENSE file for details.
-
-## Author
-
-**rabbyt3s** - Security researcher and tool developer
-
-## Disclaimer
-
-This tool is designed for authorized security testing only. Always ensure you have proper authorization before scanning any systems. The authors are not responsible for misuse of this software.
+SnapRecon is released under the MIT License. See `LICENSE` for details.

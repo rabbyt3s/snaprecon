@@ -12,9 +12,9 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 
-def setup_logging(verbose: bool = False, log_file: Optional[Path] = None) -> None:
+def setup_logging(debug: bool = False, log_file: Optional[Path] = None) -> None:
     """Set up logging configuration."""
-    level = logging.DEBUG if verbose else logging.INFO
+    level = logging.DEBUG if debug else logging.CRITICAL
     
     # Create formatter
     formatter = logging.Formatter(
@@ -23,7 +23,7 @@ def setup_logging(verbose: bool = False, log_file: Optional[Path] = None) -> Non
     
     # Set up console handler
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(level)
+    console_handler.setLevel(logging.DEBUG if debug else logging.CRITICAL)
     console_handler.setFormatter(formatter)
     
     # Set up file handler if specified

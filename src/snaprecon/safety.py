@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List, Set, Optional
+from typing import List, Optional, Set
 
 from .errors import ScopeError
 from .models import Target
-from .config import AppConfig
 
 logger = logging.getLogger(__name__)
 

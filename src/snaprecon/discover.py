@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import subprocess
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
+from typing import Iterable, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 from .errors import DiscoveryError
@@ -73,51 +72,75 @@ def read_targets_file(file_path: Path) -> List[str]:
         )
 
 
+def _target_from_host(host: str) -> Target:
+    """Normalize a host string into a Target."""
+    host_clean = (host or "").strip().lower()
+    if not host_clean or "." not in host_clean:
+        raise DiscoveryError(
+            f"Invalid host entry: {host!r}",
+            code="INVALID_HOST",
+        )
+
+    parts = host_clean.split(".")
+    if len(parts) < 2:
+        raise DiscoveryError(
+            f"Host must contain at least one dot: {host}",
+            code="INVALID_HOST",
+        )
+
+    domain_part = ".".join(parts[-2:])
+    subdomain_part = ".".join(parts[:-2]) if len(parts) > 2 else None
+
+    return Target(host=host_clean, domain=domain_part, subdomain=subdomain_part)
+
+
+def resolve_targets_from_hosts(hosts: Iterable[str]) -> List[Target]:
+    """Create Target objects from an iterable of host strings."""
+    seen: Set[str] = set()
+    targets: List[Target] = []
+
+    for host in hosts:
+        if not host:
+            continue
+        target = _target_from_host(host)
+        if target.host in seen:
+            continue
+        seen.add(target.host)
+        targets.append(target)
+
+    if not targets:
+        raise DiscoveryError(
+            "No valid hosts provided",
+            code="NO_HOSTS",
+        )
+
+    return targets
+
+
 def resolve_targets(
     config: AppConfig,
     domain: Optional[str] = None,
     input_file: Optional[str] = None
 ) -> List[Target]:
-    """Resolve targets from domain or input file."""
-    targets = []
-    
+    """Resolve targets from domain discovery or a pre-existing host list."""
     if domain:
-        # Single domain discovery
         subdomains = asyncio.run(run_subfinder(domain, config))
-        for subdomain in subdomains:
-            target = Target(
-                host=subdomain,
-                domain=domain,
-                subdomain=subdomain.replace(f".{domain}", "") if subdomain != domain else None
+        if not subdomains:
+            raise DiscoveryError(
+                f"Subfinder returned no subdomains for {domain}",
+                code="NO_SUBDOMAINS",
             )
-            targets.append(target)
-    
-    elif input_file:
-        # Read from file
+        return resolve_targets_from_hosts(subdomains)
+
+    if input_file:
         file_path = Path(input_file)
         hosts = read_targets_file(file_path)
-        
-        for host in hosts:
-            # Extract domain from host
-            parts = host.split(".")
-            if len(parts) >= 2:
-                domain_part = ".".join(parts[-2:])
-                subdomain_part = ".".join(parts[:-2]) if len(parts) > 2 else None
-                
-                target = Target(
-                    host=host,
-                    domain=domain_part,
-                    subdomain=subdomain_part
-                )
-                targets.append(target)
-    
-    if not targets:
-        raise DiscoveryError(
-            "No targets found. Provide either --domain or --input-file",
-            code="NO_TARGETS"
-        )
-    
-    return targets
+        return resolve_targets_from_hosts(hosts)
+
+    raise DiscoveryError(
+        "No targets found. Provide either --domain or --input-file",
+        code="NO_TARGETS",
+    )
 
 
 def _normalize_scope_entry(entry: str) -> Tuple[Optional[str], Optional[str]]:

@@ -2,15 +2,14 @@
 
 **Run ID:** {{ results.run_id }}  
 **Timestamp:** {{ results.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') }}  
-**Mode:** Local analysis  
-**Cost:** $0.0000
+**Mode:** Local analysis
 
 ## Summary
 
 - **Total Targets:** {{ results.targets|length }}
 - **Successful Screenshots:** {{ success_count }}
 - **Failed Screenshots:** {{ error_count }}
-- **Successful Analyses:** {{ results.targets|selectattr('llm_result')|list|length }}
+- **Successful Analyses:** {{ results.targets|selectattr('analysis')|list|length }}
 
 ## Configuration
 
@@ -32,11 +31,11 @@
 - **Final URL:** {{ target.metadata.final_url or "N/A" }}
 - **Screenshot Size:** {{ target.metadata.screenshot_size or "N/A" }} bytes
 
-{% if target.llm_result %}
+{% if target.analysis %}
 **Analysis Results:**
-- **Summary:** {{ target.llm_result.summary }}
-- **Tags:** {{ target.llm_result.tags|join(', ') }}
-- **Interesting:** {% if target.llm_result.confidence >= 0.85 %}RED{% elif target.llm_result.confidence >= 0.6 %}AMBER{% else %}GREEN{% endif %}
+-- **Summary:** {{ target.analysis.summary }}
+-- **Tags:** {{ target.analysis.tags|join(', ') }}
+-- **Interesting:** {% if target.analysis.confidence >= 0.85 %}RED{% elif target.analysis.confidence >= 0.6 %}AMBER{% else %}GREEN{% endif %}
 {% endif %}
 
 ---
@@ -55,14 +54,12 @@
 ---
 {% endfor %}
 
-<!-- No cost breakdown in local mode -->
-
 ## Tags Summary
 
 {% set all_tags = [] %}
 {% for target in results.targets %}
-    {% if target.llm_result %}
-        {% for tag in target.llm_result.tags %}
+    {% if target.analysis %}
+        {% for tag in target.analysis.tags %}
             {% set _ = all_tags.append(tag) %}
         {% endfor %}
     {% endif %}
