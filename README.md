@@ -1,20 +1,19 @@
 # SnapRecon
 
-*Built and maintained by rabbyt3s for authorized recon workflows.*
+SnapRecon is a Linux-first reconnaissance CLI that automates discovery, screenshot capture, and lightweight heuristic analysis for authorized assessments. It integrates Playwright/Chromium, `subfinder`, and a deterministic reporting pipeline to deliver repeatable results you can archive or feed into downstream tooling.
 
-SnapRecon is a Python CLI that performs authorized reconnaissance end to end: it discovers targets, screenshots them with Playwright/Chromium, applies lightweight local heuristics, and ships a report you can hand to stakeholders. The tool is designed to run on Kali or any Linux box where you already vet your scope.
-
-## Why SnapRecon
-- One command from discovery to report: subfinder integration, screenshots, local tagging
-- Reports you can share: JSON for automation, Markdown/HTML for humans
-- Friendly UX: progress spinners, Rich-powered summaries, actionable errors
-- Safety first: scoped runs, deterministic denylisting, no credential or cookie capture
+## Key Capabilities
+- Discovery pipeline using `subfinder` or pre-built host lists
+- Chromium-based screenshot capture with concurrent workers and strict timeouts
+- Keyword-oriented tagging to flag administrative or high-value surfaces
+- Deterministic JSON, Markdown, and HTML report generation
+- Local-only processing; no external LLM or telemetry dependencies
 
 ## Requirements
-- Python 3.11 or newer (virtual environments recommended)
-- Playwright with the Chromium browser runtime (`playwright install --with-deps chromium`)
-- `subfinder` on your PATH (installed via `apt`, `brew`, or the upstream release)
-- A scope file defining what you are authorized to scan (see below)
+- Python 3.11+
+- Playwright with the Chromium runtime (`playwright install --with-deps chromium`)
+- `subfinder` available on `PATH` or provided via `--subfinder-bin`
+- Any modern Linux distribution (tested on Kali, Ubuntu, Arch); macOS with Playwright support should also work
 
 ## Installation
 ```bash
@@ -30,83 +29,70 @@ pip install -e .
 playwright install --with-deps chromium
 ```
 
-You can optionally install with `pipx install .` if you prefer isolated CLIs.
+For a global CLI, you can install with `pipx install .` instead of creating a virtual environment.
 
 ## Quick Start
-1. **Create a scope file** describing allowed domains/hosts:
+1. Optional scope file (recommended for larger engagements):
    ```text
    # scope.txt
    example.com
-   *.example.net
+   *.corp.example.net
    admin.partner.example.org
    ```
-2. **Run SnapRecon** with either a discovery seed (`--domain`) or a prepared host list (`--targets-file`). A scope file is required.
+2. Run SnapRecon with a discovery seed or a host list. Scope filtering is additive—provide it when you want explicit allow-list behaviour.
    ```bash
-   snaprecon --domain example.com --scope-file scope.txt
+   snaprecon --domain example.com                     # discovery via subfinder
+   snaprecon --targets-file ./hosts.txt               # ingest an existing list
+   snaprecon --domain example.com --scope-file scope.txt  # discovery + scope enforcement
    ```
-3. **Open the report** from the timestamped run directory under `runs/`.
+3. Review the timestamped run directory under `runs/` and open `report.html`.
 
-If you see `Missing input: provide --domain or --targets-file. Run 'snaprecon --help' for usage details.`, pass one of the required inputs or run the help command for full CLI usage.
+If you call `snaprecon` without `--domain` or `--targets-file` the CLI will exit with guidance to supply either input or inspect `--help`.
 
-## CLI Usage
-Run `snaprecon --help` for the latest options. Core flags include:
-- `--domain / --targets-file` – choose between discovery (subfinder) or ingesting a prepared list
-- `--scope-file` – mandatory allow-list of domains/hosts; targets outside scope are dropped
-- `--output-dir` – parent directory for timestamped runs (default `runs`)
-- `--concurrency` – browser worker count (1-20)
-- `--timeout` – per-target navigation timeout in milliseconds
-- `--fullpage` – capture full-page screenshots
-- `--dry-run` – skip local analysis while still capturing screenshots
-- `--debug` – enable verbose logging to the terminal
+## CLI Overview
+Consult `snaprecon --help` for the full command surface. Frequently used options include:
+- `--domain` / `--targets-file` — choose between discovery or ingest
+- `--scope-file` — optional allow-list; out-of-scope hosts are dropped when present
+- `--output-dir` — parent directory for run artifacts (default: `runs`)
+- `--concurrency` — concurrent browser workers (1-20)
+- `--timeout` — per-target navigation timeout in milliseconds
+- `--fullpage` — toggle full-page screenshots
+- `--dry-run` — skip keyword analysis, capture screenshots only
+- `--debug` — emit verbose logs
 
-Example: ingest a curated list, run in headed mode for debugging, and keep costs low by skipping analysis.
-```bash
-snaprecon --targets-file scope_hosts.txt --scope-file scope.txt --headed --dry-run
-```
-
-## Output
+## Output Layout
 Each run creates `runs/YYYYMMDD_HHMMSS/` containing:
-- `results.json` – Pydantic-validated run data (safe config, per-target metadata, analysis)
-- `report.md` – quick summary for chat tools or issue trackers
-- `report.html` – rich, filterable report with thumbnails and open-port highlights
-- `screenshots/` – full-resolution PNGs named after the host
+- `results.json` — Pydantic-validated summary with safe configuration and per-target metadata
+- `report.md` — text summary suitable for ticketing systems
+- `report.html` — filterable report with thumbnails and optional port data
+- `screenshots/` — PNG captures named after each host
 
-JSON serialization is stable and extra fields are rejected, so downstream tooling can rely on the schema.
+JSON output is stable and forbids unknown fields, making it suitable for automated pipelines.
 
 ## Configuration
-SnapRecon reads values from environment variables first, then an optional TOML file (see `config.example.toml`). Useful knobs:
+SnapRecon reads environment variables first and then merges an optional TOML configuration file (see `config.example.toml`). Notable settings:
 - `SNAPRECON_OUTPUT_DIR`, `SNAPRECON_CONCURRENCY`, `SNAPRECON_TIMEOUT_MS`
 - `SNAPRECON_USER_AGENT`, `SNAPRECON_FULLPAGE`, `SNAPRECON_HEADLESS`
-- `SNAPRECON_SUBFINDER_BIN` to point to a custom binary path
+- `SNAPRECON_SUBFINDER_BIN` for non-default binary paths
 
-To persist settings, copy `config.example.toml` to `config.toml` and tweak as needed.
+Persist overrides by copying `config.example.toml` to `config.toml`.
 
-## Local Keyword Analysis
-When not running in `--dry-run`, SnapRecon tags each page using heuristics driven by titles, URLs, and hostnames. Tags such as `admin`, `vpn`, `devops`, or `api` help you triage interesting surfaces quickly—without sending data to external LLMs.
+## Keyword Analysis
+When analysis is enabled (the default), snapshots are tagged using heuristic keyword matching across titles, URLs, and hostnames (e.g., `admin`, `vpn`, `devops`, `api`). The process is entirely local and incurs zero external calls.
 
-## Safety & Ethics
-- Always provide a valid scope file; SnapRecon refuses to proceed when the file is missing or empty.
-- Targets outside your scope or in a denylist are skipped with explicit logging.
-- Playwright sessions never persist cookies, local storage, or credentials to disk.
-- Respect rate limits and legal boundaries—only run SnapRecon where you have written permission.
+## Operational Notes
+- Respect legal scope: only enumerate systems you are authorized to assess.
+- Provide a scope file when you need deterministic allow-list enforcement; the CLI does not require it for single-domain discovery.
+- Headless Chromium sessions do not persist cookies or credentials.
+- Timeouts and concurrency limits guard against resource exhaustion during large enumerations.
 
 ## Troubleshooting
-- **`subfinder` not found** – install the binary or point `--subfinder-bin` to its location.
-- **Chromium fails to launch** – rerun `playwright install --with-deps chromium` and ensure you have required system libraries.
-- **Timeouts** – raise `--timeout` or lower `--concurrency` for high-latency targets.
-- **Missing screenshots** – inspect `runs/<timestamp>/screenshots/` and rerun with `--debug` for verbose logs.
+- `subfinder` missing: install via package manager or pass `--subfinder-bin` with an absolute path.
+- Chromium launch failures: run `playwright install --with-deps chromium` and ensure system libraries are present.
+- Repeated timeouts: increase `--timeout` or lower `--concurrency`.
+- Empty screenshots: re-run with `--debug` to view Playwright logs.
 
-## Development
-```bash
-# Run linting and tests
-ruff check src
-pytest -q
-
-# Format code
-ruff format src
-```
-
-Contributions are welcome: fork, branch, add tests, and open a PR. See `SECURITY.md` for the vulnerability disclosure policy.
+Contributions are welcome. Fork the repository, branch from `main`, add tests alongside changes, and submit a pull request. 
 
 ## License
-SnapRecon is released under the MIT License. See `LICENSE` for details.
+Released under the MIT License. Refer to `LICENSE` for the full text.
