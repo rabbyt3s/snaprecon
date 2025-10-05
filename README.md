@@ -1,6 +1,14 @@
 # SnapRecon
 
+<img width="600" height="200" alt="SnapRecon banner" src="https://github.com/user-attachments/assets/735ee8d4-9aef-41d5-8c67-88609325de2e" />
+
 SnapRecon is a Linux-first reconnaissance CLI that automates discovery, screenshot capture, and lightweight heuristic analysis for authorized assessments. It integrates Playwright/Chromium, `subfinder`, and a deterministic reporting pipeline to deliver repeatable results you can archive or feed into downstream tooling.
+
+## Built With
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](#requirements)
+[![Typer](https://img.shields.io/badge/Typer-CLI-2962FF?logo=typer&logoColor=white)](#cli-overview)
+[![Playwright](https://img.shields.io/badge/Playwright-Chromium-2EAD33?logo=microsoftedge&logoColor=white)](#requirements)
+[![subfinder](https://img.shields.io/badge/subfinder-Discovery-000000)](#quick-start)
 
 ## Key Capabilities
 - Discovery pipeline using `subfinder` or pre-built host lists
@@ -29,7 +37,7 @@ pip install -e .
 playwright install --with-deps chromium
 ```
 
-For a global CLI, you can install with `pipx install .` instead of creating a virtual environment.
+For a global CLI, install with `pipx install .` to keep the environment isolated.
 
 ## Quick Start
 1. Optional scope file (recommended for larger engagements):
@@ -41,33 +49,33 @@ For a global CLI, you can install with `pipx install .` instead of creating a vi
    ```
 2. Run SnapRecon with a discovery seed or a host list. Scope filtering is additive—provide it when you want explicit allow-list behaviour.
    ```bash
-   snaprecon --domain example.com                     # discovery via subfinder
-   snaprecon --targets-file ./hosts.txt               # ingest an existing list
+   snaprecon --domain example.com                      # discovery via subfinder
+   snaprecon --targets-file ./hosts.txt                # ingest an existing list
    snaprecon --domain example.com --scope-file scope.txt  # discovery + scope enforcement
    ```
 3. Review the timestamped run directory under `runs/` and open `report.html`.
 
-If you call `snaprecon` without `--domain` or `--targets-file` the CLI will exit with guidance to supply either input or inspect `--help`.
+If you call `snaprecon` without `--domain` or `--targets-file`, the CLI exits with guidance to supply either input or run `snaprecon --help`.
 
 ## CLI Overview
-Consult `snaprecon --help` for the full command surface. Frequently used options include:
-- `--domain` / `--targets-file` — choose between discovery or ingest
-- `--scope-file` — optional allow-list; out-of-scope hosts are dropped when present
+Run `snaprecon --help` for the full command surface. Frequently used options:
+- `--domain` / `--targets-file` — choose discovery via subfinder or ingest a prepared list
+- `--scope-file` — optional allow-list; when provided, out-of-scope hosts are dropped
 - `--output-dir` — parent directory for run artifacts (default: `runs`)
 - `--concurrency` — concurrent browser workers (1-20)
 - `--timeout` — per-target navigation timeout in milliseconds
 - `--fullpage` — toggle full-page screenshots
-- `--dry-run` — skip keyword analysis, capture screenshots only
-- `--debug` — emit verbose logs
+- `--dry-run` — skip keyword analysis and capture screenshots only
+- `--debug` — emit verbose logs with Playwright details
 
 ## Output Layout
 Each run creates `runs/YYYYMMDD_HHMMSS/` containing:
 - `results.json` — Pydantic-validated summary with safe configuration and per-target metadata
-- `report.md` — text summary suitable for ticketing systems
-- `report.html` — filterable report with thumbnails and optional port data
+- `report.md` — text summary aligned with ticketing workflows
+- `report.html` — interactive report with thumbnails and optional port data
 - `screenshots/` — PNG captures named after each host
 
-JSON output is stable and forbids unknown fields, making it suitable for automated pipelines.
+JSON output is stable and forbids unknown fields, making it safe for downstream automation.
 
 ## Configuration
 SnapRecon reads environment variables first and then merges an optional TOML configuration file (see `config.example.toml`). Notable settings:
@@ -78,11 +86,11 @@ SnapRecon reads environment variables first and then merges an optional TOML con
 Persist overrides by copying `config.example.toml` to `config.toml`.
 
 ## Keyword Analysis
-When analysis is enabled (the default), snapshots are tagged using heuristic keyword matching across titles, URLs, and hostnames (e.g., `admin`, `vpn`, `devops`, `api`). The process is entirely local and incurs zero external calls.
+When analysis is enabled (the default), SnapRecon tags snapshots using heuristic keyword matching across titles, URLs, and hostnames (e.g., `admin`, `vpn`, `devops`, `api`). All processing is local; no external LLM calls are performed.
 
 ## Operational Notes
-- Respect legal scope: only enumerate systems you are authorized to assess.
-- Provide a scope file when you need deterministic allow-list enforcement; the CLI does not require it for single-domain discovery.
+- Respect legal scope: only target systems you are authorized to assess.
+- Provide a scope file when you need deterministic allow-list enforcement; it is not mandatory for basic discovery.
 - Headless Chromium sessions do not persist cookies or credentials.
 - Timeouts and concurrency limits guard against resource exhaustion during large enumerations.
 
@@ -92,7 +100,8 @@ When analysis is enabled (the default), snapshots are tagged using heuristic key
 - Repeated timeouts: increase `--timeout` or lower `--concurrency`.
 - Empty screenshots: re-run with `--debug` to view Playwright logs.
 
-Contributions are welcome. Fork the repository, branch from `main`, add tests alongside changes, and submit a pull request. 
+## Contributing
+Contributions are welcome. Fork the repository, branch from `main`, add tests alongside changes, and submit a pull request. Review `SECURITY.md` for the disclosure policy.
 
 ## License
 Released under the MIT License. Refer to `LICENSE` for the full text.
