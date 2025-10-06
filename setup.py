@@ -24,6 +24,7 @@ setup(
         "aiofiles>=23.0.0",
         "colorama>=0.4.6",
         "tqdm>=4.65.0",
+        "orjson>=3.0.0",
     ],
     entry_points={
         "console_scripts": [

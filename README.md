@@ -27,7 +27,7 @@ SnapRecon is a **Linux-first reconnaissance CLI** that automates discovery, scre
 ## Requirements
 - Python 3.11+
 - Playwright with the Chromium runtime (`playwright install --with-deps chromium`)
-- `subfinder` available on `PATH` or provided via `--subfinder-bin`
+- `subfinder` installed and available on your `PATH` (see installation notes below, or provide `--subfinder-bin`)
 - Any modern Linux distribution (tested on Kali, Ubuntu, Arch); macOS with Playwright support should also work
 
 ## Installation
@@ -42,6 +42,20 @@ pip install -e .
 
 # Install Playwright browsers
 playwright install --with-deps chromium
+```
+
+```bash
+# Install subfinder (choose one option) and ensure it is in PATH
+sudo apt install subfinder                             # Debian/Kali/Ubuntu package
+# or
+go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+export PATH="$PATH:$HOME/go/bin" && source ~/.bashrc   # add Go bin to PATH if needed
+# or
+wget https://github.com/projectdiscovery/subfinder/releases/latest/download/subfinder_linux_amd64.zip
+unzip subfinder_linux_amd64.zip && sudo mv subfinder /usr/local/bin/
+
+# Verify the binary is available
+which subfinder
 ```
 
 For a global CLI, install with `pipx install .` to keep the environment isolated.
