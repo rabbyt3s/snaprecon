@@ -6,7 +6,8 @@
 
 
 SnapRecon is a **Linux-first reconnaissance CLI** that automates discovery, screenshot capture, and lightweight heuristic analysis for authorized assessments. It integrates Playwright/Chromium, `subfinder`, and a deterministic reporting pipeline to deliver repeatable results you can archive or feed into downstream tooling.
-![demo](https://github.com/user-attachments/assets/0956255f-f32c-4454-9d91-31e442297255)
+
+![demo](https://github.com/user-attachments/assets/1a4bf851-8b8d-42cf-8a8d-f25b0dec3411)
 
 </div>
 
@@ -113,4 +114,5 @@ Contributions are welcome. Fork the repository, branch from `main`, add tests al
 
 ## License
 Released under the MIT License. Refer to `LICENSE` for the full text.
+
 
