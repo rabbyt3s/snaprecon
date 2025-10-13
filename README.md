@@ -58,6 +58,12 @@ unzip subfinder_linux_amd64.zip && sudo mv subfinder /usr/local/bin/
 which subfinder
 ```
 
+### Docker
+```bash
+docker build -t snaprecon .
+docker run -it --rm -v $(pwd):/runs reconsnap --domain exemple.org
+```
+
 For a global CLI, install with `pipx install .` to keep the environment isolated.
 
 ## Quick Start
