@@ -29,5 +29,11 @@ dependencies = [
     "wappalyzer>=1.0.17",
 ]
 
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"snaprecon" = ["templates/*.j2"]
+
 [project.scripts]
 snaprecon = "snaprecon.cli:app"

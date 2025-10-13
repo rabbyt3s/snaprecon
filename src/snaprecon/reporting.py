@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from importlib import resources
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -54,33 +55,39 @@ def write_results_json(results: RunResult, config: AppConfig) -> Path:
         raise
 
 
+_JINJA_ENV: Environment | None = None
+
+
+def _get_environment() -> Environment:
+    global _JINJA_ENV
+    if _JINJA_ENV is None:
+        template_root = resources.files("snaprecon") / "templates"
+        _JINJA_ENV = Environment(
+            loader=FileSystemLoader(str(template_root)),
+            autoescape=select_autoescape()
+        )
+    return _JINJA_ENV
+
+
 def render_report_template(template_name: str, results: RunResult, config: AppConfig, *, ports_map: Optional[Dict[str, List[int]]] = None, scanned_ports: Optional[List[int]] = None) -> str:
     """Render a report template with Jinja2."""
-    # Set up Jinja2 environment
-    template_dir = Path(__file__).parent.parent.parent / "templates"
-    env = Environment(
-        loader=FileSystemLoader(str(template_dir)),
-        autoescape=select_autoescape()
-    )
-    
-    # Get template
+
+    env = _get_environment()
     template = env.get_template(template_name)
-    
-    # Prepare template context - use safe config from results
+
     context = {
         "results": results,
-        "config": results.config,  # Use safe config from results
+        "config": results.config,
         "success_count": len([t for t in results.targets if not t.error]),
         "error_count": len([t for t in results.targets if t.error]),
         "targets_by_status": {
             "success": [t for t in results.targets if not t.error],
             "error": [t for t in results.targets if t.error]
         },
-        # Optional ports context (HTML-only)
         "ports_map": ports_map,
         "scanned_ports": scanned_ports,
     }
-    
+
     return template.render(**context)
 
 
