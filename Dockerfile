@@ -7,7 +7,7 @@ RUN wget https://github.com/projectdiscovery/subfinder/releases/download/v2.9.0/
 
 COPY . .
 
-RUN pip install .
+RUN pip install -e .
 RUN playwright install --with-deps chromium
 
 ENTRYPOINT [ "snaprecon" ]

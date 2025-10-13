@@ -61,7 +61,7 @@ which subfinder
 ### Docker
 ```bash
 docker build -t snaprecon .
-docker run -it --rm -v $(pwd):/runs reconsnap --domain exemple.org
+docker run -it --rm -v $(pwd):/runs snaprecon --domain exemple.org
 ```
 
 For a global CLI, install with `pipx install .` to keep the environment isolated.
