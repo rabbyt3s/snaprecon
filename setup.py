@@ -25,7 +25,10 @@ setup(
         "colorama>=0.4.6",
         "tqdm>=4.65.0",
         "orjson>=3.0.0",
+        "wappalyzer>=1.0.17",
     ],
+    include_package_data=True,
+    package_data={"snaprecon": ["templates/*.j2"]},
     entry_points={
         "console_scripts": [
             "snaprecon=snaprecon.cli:app",

@@ -94,6 +94,45 @@ Run `snaprecon --help` for the full command surface. Frequently used options:
 - `--fullpage` — toggle full-page screenshots
 - `--dry-run` — skip keyword analysis and capture screenshots only
 - `--debug` — emit verbose logs with Playwright details
+- `--scan-profile` — choose `fast`, `balanced`, or `full` presets (controls analysis + tech fingerprinting)
+- `--wappalyzer` / `--wappalyzer-scan` — enable Wappalyzer detection and select `fast`, `balanced`, or `full`
+
+### Scan Profiles
+
+SnapRecon bundles three opinionated presets to balance speed and fidelity:
+
+| Profile   | Description | Analysis | Wappalyzer |
+|-----------|-------------|----------|------------|
+| `fast`    | Screenshot-only; quickest feedback loop | Disabled (`--dry-run`) | Off |
+| `balanced`| Default mix of speed and insight | Enabled | Off |
+| `full`    | Maximum context via local analysis + tech fingerprinting | Enabled | On (`--wappalyzer-scan full`) |
+
+You can still override individual flags (`--wappalyzer`, `--dry-run`, etc.) after selecting a profile.
+
+### Wappalyzer Integration
+
+SnapRecon optionally augments metadata with technology fingerprints via the [`wappalyzer`](https://pypi.org/project/wappalyzer/) package.
+
+1. Install runtime dependencies (Wappalyzer relies on Firefox/geckodriver):
+   ```bash
+   sudo apt install firefox-esr
+   wget -O geckodriver.tar.gz "https://github.com/mozilla/geckodriver/releases/latest/download/geckodriver-linux64.tar.gz"
+   tar xf geckodriver.tar.gz
+   sudo mv geckodriver /usr/local/bin/
+   ```
+2. Install the Python dependency (already in project requirements):
+   ```bash
+   pip install wappalyzer
+   ```
+3. Run SnapRecon with Wappalyzer enabled:
+   ```bash
+snaprecon --targets-file hosts.txt --scan-profile full
+# (scan profile full automatically enables Wappalyzer with a full scan)
+# or manually
+snaprecon --targets-file hosts.txt --wappalyzer --wappalyzer-scan balanced
+   ```
+
+Detected technologies surface in both JSON (`results.targets[].metadata.technologies`) and rendered reports.
 
 <img width="1452" height="550" alt="image" src="https://github.com/user-attachments/assets/1a405ec2-1b11-4add-a314-08ae0521a6fb" />
 

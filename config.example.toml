@@ -14,6 +14,15 @@ fullpage = false
 subfinder_bin = "subfinder"
 concurrency = 5
 
+[runtime]
+scan_profile = "balanced"  # fast, balanced, or full
+dry_run = false
+
+[wappalyzer]
+enabled = false
+scan_type = "balanced"  # fast, balanced, full
+threads = 3
+
 [output]
 output_dir = "runs"
 verbose = true

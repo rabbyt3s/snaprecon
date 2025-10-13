@@ -14,6 +14,7 @@
 ## Configuration
 
 - **Output Directory:** {{ config.run_dir }}
+- **Scan Profile:** {{ config.scan_profile|capitalize }}
 - **Concurrency:** {{ config.concurrency }}
 - **Timeout:** {{ config.timeout_ms }}ms
 - **Full Page Screenshots:** {{ "Yes" if config.fullpage else "No" }}
@@ -30,6 +31,7 @@
 - **Status Code:** {{ target.metadata.status_code or "N/A" }}
 - **Final URL:** {{ target.metadata.final_url or "N/A" }}
 - **Screenshot Size:** {{ target.metadata.screenshot_size or "N/A" }} bytes
+{% if target.metadata.technologies %}- **Technologies:** {{ target.metadata.technologies | map(attribute='name') | list | join(', ') }}{% endif %}
 
 {% if target.analysis %}
 **Analysis Results:**

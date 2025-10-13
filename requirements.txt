@@ -14,3 +14,4 @@ toml>=0.10.0
 aiofiles>=23.0.0
 colorama>=0.4.6
 tqdm>=4.65.0
+wappalyzer>=1.0.17
