@@ -16,10 +16,11 @@ from .analysis import analyze_targets
 from .browser import screenshot_many
 from .config import AppConfig
 from .discover import resolve_targets
+from .errors import DependencyError
 from .models import RunResult, SafeConfig, Target
 from .reporting import write_results_and_reports
 from .tech import detect_technologies
-from .utils import setup_logging
+from .utils import check_optional_dependencies, check_required_dependencies, setup_logging
 
 app = typer.Typer(
     add_completion=False,
@@ -57,6 +58,26 @@ def _run_wappalyzer(targets: list[Target], config: AppConfig, console: Console) 
         except RuntimeError as exc:
             console.print(f"[red]✗[/red] Technology detection unavailable: {exc}")
             raise typer.Exit(1) from exc
+
+
+def _ensure_dependencies(
+    config: AppConfig,
+    *,
+    console: Console,
+    wants_wappalyzer: bool,
+) -> None:
+    """Validate external dependencies before proceeding with the run."""
+
+    try:
+        check_required_dependencies(subfinder_bin=config.subfinder_bin, headless=config.headless)
+        check_optional_dependencies(wants_wappalyzer=wants_wappalyzer)
+    except DependencyError as exc:
+        console.print("[red]✗[/red] Missing required dependencies.")
+        for line in str(exc).splitlines():
+            if not line:
+                continue
+            console.print(f"[red]-[/red] {line}")
+        raise typer.Exit(1) from exc
 
 @app.callback(invoke_without_command=True)
 def main(
@@ -208,7 +229,13 @@ def run(
             wappalyzer_scan_type=normalized_wapp_scan,
             wappalyzer_threads=wappalyzer_threads,
         )
-        
+
+        _ensure_dependencies(
+            config,
+            console=console,
+            wants_wappalyzer=config.wappalyzer_enabled,
+        )
+
         console.print("[bold blue]SnapRecon[/bold blue] - Starting reconnaissance run")
         console.print(f"Output directory: [green]{config.run_dir}[/green]")
         
@@ -320,6 +347,8 @@ def run(
         # Display summary
         display_summary(results)
         
+    except typer.Exit:
+        raise
     except Exception as e:
         logging.getLogger(__name__).error("Reconnaissance failed: %s", e)
         console.print(f"[red]✗[/red] Reconnaissance failed: {e}")
@@ -382,6 +411,12 @@ def test(
             fullpage=fullpage,
             timeout_ms=timeout,
             subfinder_bin=subfinder_bin
+        )
+
+        _ensure_dependencies(
+            config,
+            console=console,
+            wants_wappalyzer=config.wappalyzer_enabled,
         )
         
         console.print("[bold blue]SnapRecon Test Mode[/bold blue] - Quick benchmark run")
@@ -509,12 +544,25 @@ def test(
         console.print(f"  [cyan]•[/cyan] Success rate: {(success_count/len(targets)*100):.1f}%")
         console.print(f"  [cyan]•[/cyan] Ready for full run: {'Yes' if success_count/len(targets) > 0.8 else 'No'}")
         
+    except typer.Exit:
+        raise
+    except typer.Exit:
+        raise
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
         if debug:
             import traceback
             console.print(traceback.format_exc())
         raise typer.Exit(1)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        if debug:
+            import traceback
+            console.print(traceback.format_exc())
+        raise typer.Exit(1)
+        return
 
 
 @app.command()
@@ -560,6 +608,12 @@ def quick(
         console.print("[bold blue]SnapRecon Quick Mode[/bold blue] - Fast screenshots without analysis")
         console.print(f"Output directory: [green]{config.run_dir}[/green]")
         
+        _ensure_dependencies(
+            config,
+            console=console,
+            wants_wappalyzer=config.wappalyzer_enabled,
+        )
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),

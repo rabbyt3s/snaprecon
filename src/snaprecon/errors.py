@@ -40,3 +40,8 @@ class ConfigurationError(SnapReconError):
 class DiscoveryError(SnapReconError):
     """Raised when subdomain discovery fails."""
     pass
+
+
+class DependencyError(SnapReconError):
+    """Raised when required external dependencies are unavailable."""
+    pass

@@ -144,7 +144,7 @@ def write_results_and_reports(results: RunResult, config: AppConfig, *, ports_ma
         
     except Exception as e:
         logger.error(f"Failed to write reports: {e}")
-        raise
+        return output_files
 
 
 def create_summary_stats(results: RunResult) -> dict:
