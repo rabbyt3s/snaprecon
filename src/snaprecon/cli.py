@@ -18,6 +18,7 @@ from .config import AppConfig
 from .discover import resolve_targets
 from .models import RunResult, SafeConfig, Target
 from .reporting import write_results_and_reports
+from .tech import detect_technologies
 from .utils import setup_logging
 
 app = typer.Typer(
@@ -26,6 +27,36 @@ app = typer.Typer(
 )
 console = Console()
 
+
+def _run_wappalyzer(targets: list[Target], config: AppConfig, console: Console) -> list[Target]:
+    """Execute the optional Wappalyzer fingerprinting step."""
+
+    if not config.wappalyzer_enabled or not targets:
+        return targets
+
+    console.print("[yellow]Running Wappalyzer technology detection...[/yellow]")
+
+    tech_completed = 0
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=None),
+        TextColumn("{task.completed}/{task.total}", justify="right"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Fingerprinting targets...", total=len(targets))
+
+        def update(_: Target) -> None:
+            nonlocal tech_completed
+            tech_completed += 1
+            progress.update(task, completed=tech_completed)
+
+        try:
+            return asyncio.run(detect_technologies(targets, config, progress_callback=update))
+        except RuntimeError as exc:
+            console.print(f"[red]✗[/red] Technology detection unavailable: {exc}")
+            raise typer.Exit(1) from exc
 
 @app.callback(invoke_without_command=True)
 def main(
@@ -51,11 +82,31 @@ def main(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Skip analysis step and only capture screenshots"),
     debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+    scan_profile: str = typer.Option(
+        "balanced",
+        "--scan-profile",
+        help="Preset balance: fast (screenshots only), balanced, full (tech fingerprinting)",
+    ),
     concurrency: int = typer.Option(5, "--concurrency", "-c", help="Concurrent browser workers (1-20)"),
     fullpage: bool = typer.Option(False, "--fullpage", help="Capture full-page screenshots instead of viewport"),
     headless: bool = typer.Option(True, "--headless/--headed", help="Run Chromium in headless mode"),
     timeout: int = typer.Option(30000, "--timeout", help="Navigation timeout per target in milliseconds"),
     subfinder_bin: str = typer.Option("subfinder", "--subfinder-bin", help="Executable used for subdomain discovery"),
+    enable_wappalyzer: bool = typer.Option(
+        False,
+        "--wappalyzer",
+        help="Enable Wappalyzer technology fingerprinting",
+    ),
+    wappalyzer_scan: str = typer.Option(
+        "balanced",
+        "--wappalyzer-scan",
+        help="Wappalyzer scan depth",
+    ),
+    wappalyzer_threads: int = typer.Option(
+        3,
+        "--wappalyzer-threads",
+        help="Wappalyzer thread count (HTTP probes)",
+    ),
 ):
     """Run a full reconnaissance cycle against discovered or pre-supplied targets."""
 
@@ -71,6 +122,10 @@ def main(
             timeout=timeout,
             subfinder_bin=subfinder_bin,
             headless=headless,
+            scan_profile=scan_profile,
+            enable_wappalyzer=enable_wappalyzer,
+            wappalyzer_scan=wappalyzer_scan,
+            wappalyzer_threads=wappalyzer_threads,
         )
 
 
@@ -102,6 +157,29 @@ def run(
     headless: bool = typer.Option(True, "--headless/--headed", help="Run Chromium in headless mode"),
     timeout: int = typer.Option(30000, "--timeout", help="Navigation timeout per target in milliseconds"),
     subfinder_bin: str = typer.Option("subfinder", "--subfinder-bin", help="Executable used for subdomain discovery"),
+    scan_profile: str = typer.Option(
+        "balanced",
+        "--scan-profile",
+        help="Preset: fast (screenshots only), balanced (default), full (with Wappalyzer)",
+    ),
+    enable_wappalyzer: bool = typer.Option(
+        False,
+        "--wappalyzer",
+        help="Enable Wappalyzer technology fingerprinting",
+        show_default=False,
+    ),
+    wappalyzer_scan: str = typer.Option(
+        "balanced",
+        "--wappalyzer-scan",
+        help="Wappalyzer scan depth",
+        show_default=False,
+    ),
+    wappalyzer_threads: int = typer.Option(
+        3,
+        "--wappalyzer-threads",
+        help="Wappalyzer thread count (HTTP probes)",
+        show_default=False,
+    ),
 ):
     """Run a full reconnaissance cycle against discovered or pre-supplied targets."""
     
@@ -109,7 +187,13 @@ def run(
     setup_logging(debug=debug)
     
     try:
-        # Create configuration
+        normalized_profile = (scan_profile or "balanced").strip().lower()
+        normalized_wapp_scan = (wappalyzer_scan or "balanced").strip().lower()
+
+        enable_wappalyzer = enable_wappalyzer or normalized_profile == "full"
+        if normalized_wapp_scan != "balanced":
+            enable_wappalyzer = True
+
         config = AppConfig.from_cli(
             output_dir=Path(output_dir),
             dry_run=dry_run,
@@ -119,6 +203,10 @@ def run(
             timeout_ms=timeout,
             subfinder_bin=subfinder_bin,
             headless=headless,
+            scan_profile=normalized_profile,
+            wappalyzer_enabled=enable_wappalyzer,
+            wappalyzer_scan_type=normalized_wapp_scan,
+            wappalyzer_threads=wappalyzer_threads,
         )
         
         console.print("[bold blue]SnapRecon[/bold blue] - Starting reconnaissance run")
@@ -168,6 +256,8 @@ def run(
         successful = len([t for t in targets if t.metadata and t.metadata.screenshot_path])
         failed = len([t for t in targets if t.error])
         console.print(f"[green]✓[/green] Screenshots completed: {successful} success, {failed} failed")
+
+        targets = _run_wappalyzer(targets, config, console)
         
         # Analyze with local keyword analysis (if not dry run)
         if not dry_run:
@@ -210,6 +300,10 @@ def run(
                 dry_run=config.dry_run,
                 debug=config.debug,
                 headless=config.headless,
+                scan_profile=config.scan_profile,
+                wappalyzer_enabled=config.wappalyzer_enabled,
+                wappalyzer_scan_type=config.wappalyzer_scan_type,
+                wappalyzer_threads=config.wappalyzer_threads,
             ),
             targets=targets,
             success_count=len([t for t in targets if t.metadata and t.metadata.screenshot_path]),
@@ -374,6 +468,10 @@ def test(
             dry_run=config.dry_run,
             debug=config.debug,
             headless=config.headless,
+            scan_profile=config.scan_profile,
+            wappalyzer_enabled=config.wappalyzer_enabled,
+            wappalyzer_scan_type=config.wappalyzer_scan_type,
+            wappalyzer_threads=config.wappalyzer_threads,
         )
         
         results = RunResult(
@@ -544,6 +642,10 @@ def quick(
             dry_run=config.dry_run,
             debug=config.debug,
             headless=config.headless,
+            scan_profile=config.scan_profile,
+            wappalyzer_enabled=config.wappalyzer_enabled,
+            wappalyzer_scan_type=config.wappalyzer_scan_type,
+            wappalyzer_threads=config.wappalyzer_threads,
         )
         
         results = RunResult(

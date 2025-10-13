@@ -26,6 +26,7 @@ dependencies = [
     "colorama>=0.4.6",
     "tqdm>=4.65.0",
     "orjson>=3.0.0",
+    "wappalyzer>=1.0.17",
 ]
 
 [project.scripts]

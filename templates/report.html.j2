@@ -426,6 +426,20 @@
                     <div class="detail-value">{{ config.run_dir }}</div>
                 </div>
                 <div class="detail-item">
+                    <div class="detail-label">Scan Profile</div>
+                    <div class="detail-value">{{ config.scan_profile|capitalize }}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Wappalyzer</div>
+                    <div class="detail-value">
+                        {% if config.wappalyzer_enabled %}
+                            Enabled ({{ config.wappalyzer_scan_type }}, threads={{ config.wappalyzer_threads }})
+                        {% else %}
+                            Disabled
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="detail-item">
                     <div class="detail-label">Concurrency</div>
                     <div class="detail-value">{{ config.concurrency }}</div>
                 </div>
@@ -460,10 +474,10 @@
             <div id="targetsGrid" data-cols="3">
             {% for target in results.targets %}
             {% set interest_class = '' %}
-            {% if target.llm_result %}
-                {% if target.llm_result.confidence >= 0.85 %}
+            {% if target.analysis %}
+                {% if target.analysis.confidence >= 0.85 %}
                     {% set interest_class = 'interest-red' %}
-                {% elif target.llm_result.confidence >= 0.6 %}
+                {% elif target.analysis.confidence >= 0.6 %}
                     {% set interest_class = 'interest-amber' %}
                 {% else %}
                     {% set interest_class = 'interest-green' %}
@@ -519,21 +533,34 @@
                 </div>
                 {% endif %}
 
-                {% if target.llm_result %}
+                {% if target.analysis %}
                 <div class="target-details">
                     <div class="detail-item">
                         <div class="detail-label">Summary</div>
-                        <div class="detail-value">{{ target.llm_result.summary }}</div>
+                        <div class="detail-value">{{ target.analysis.summary }}</div>
                     </div>
                 </div>
                 
-                {% if target.llm_result.tags %}
+                {% if target.analysis.tags %}
                 <div class="tags">
-                    {% for tag in target.llm_result.tags %}
+                    {% for tag in target.analysis.tags %}
                     <span class="tag">{{ tag }}</span>
                     {% endfor %}
                 </div>
                 {% endif %}
+                {% endif %}
+
+                {% if target.metadata and target.metadata.technologies %}
+                <div class="target-details">
+                    <div class="detail-item">
+                        <div class="detail-label">Detected Technologies</div>
+                        <div class="detail-value">
+                            {% for tech in target.metadata.technologies %}
+                                <span class="tag" title="{{ tech.categories|join(', ') }}">{{ tech.name }}{% if tech.version %} {{ tech.version }}{% endif %}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
                 {% endif %}
 
                 <!-- Screenshot Display -->

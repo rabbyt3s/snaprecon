@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator
@@ -29,6 +29,10 @@ class Metadata(BaseModel):
     screenshot_path: Optional[Path] = Field(None, description="Path to screenshot file")
     screenshot_size: Optional[int] = Field(None, description="Screenshot file size in bytes")
     load_time_ms: Optional[int] = Field(None, description="Page load time in milliseconds")
+    technologies: List["Technology"] = Field(
+        default_factory=list,
+        description="Detected technologies from optional fingerprinting",
+    )
     
     model_config = {"extra": "forbid"}
 
@@ -72,6 +76,18 @@ class Target(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class Technology(BaseModel):
+    """Detected web technology details."""
+
+    name: str = Field(..., description="Technology name")
+    confidence: int = Field(..., ge=0, le=100, description="Detection confidence percentage")
+    version: Optional[str] = Field(None, description="Detected version if available")
+    categories: List[str] = Field(default_factory=list, description="Category labels")
+    groups: List[str] = Field(default_factory=list, description="Group labels")
+
+    model_config = {"extra": "forbid"}
+
+
 class SafeConfig(BaseModel):
     """Safe configuration for storing in results (excludes sensitive data)."""
     
@@ -85,6 +101,14 @@ class SafeConfig(BaseModel):
     dry_run: bool = Field(..., description="Skip keyword analysis")
     debug: bool = Field(..., description="Enable debug logging")
     headless: bool = Field(..., description="Run Chromium in headless mode")
+    scan_profile: Literal["fast", "balanced", "full"] = Field(
+        ..., description="Preset used for this run"
+    )
+    wappalyzer_enabled: bool = Field(..., description="Whether Wappalyzer tech detection ran")
+    wappalyzer_scan_type: Literal["fast", "balanced", "full"] = Field(
+        ..., description="Scan type used for Wappalyzer"
+    )
+    wappalyzer_threads: int = Field(..., description="Threads used for Wappalyzer scan")
     
     model_config = {"extra": "forbid"}
 
