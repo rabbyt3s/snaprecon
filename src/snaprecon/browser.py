@@ -6,6 +6,7 @@ import asyncio
 import logging
 from contextlib import suppress
 from typing import Callable, List, Optional
+from contextlib import suppress
 
 from playwright.async_api import async_playwright, Browser, Page
 from .errors import NavigationError
@@ -35,7 +36,10 @@ class BrowserManager:
             "--disable-features=VizDisplayCompositor",
         ]
 
-        self.browser = await self.playwright.chromium.launch(headless=True, args=browser_args)
+        self.browser = await self.playwright.chromium.launch(
+            headless=self.config.headless,
+            args=browser_args,
+        )
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -47,12 +51,11 @@ class BrowserManager:
     
     async def create_page(self) -> Page:
         """Create a new page with configured settings."""
-        page = await self.browser.new_page()
-        
-        # Set user agent
-        await page.set_extra_http_headers({
-            "User-Agent": self.config.user_agent
-        })
+        new_page_kwargs = {}
+        if self.config.user_agent:
+            new_page_kwargs["user_agent"] = self.config.user_agent
+
+        page = await self.browser.new_page(**new_page_kwargs)
         
         # Set viewport
         await page.set_viewport_size({"width": 1920, "height": 1080})
@@ -151,9 +154,9 @@ async def screenshot_target(target: Target, page: Page, config: AppConfig) -> Ta
             await asyncio.wait_for(
                 page.screenshot(
                     path=str(screenshot_path),
-                    full_page=config.fullpage
+                    full_page=config.fullpage,
                 ),
-                timeout=10.0  # 10 second timeout for screenshot
+                timeout=10.0,
             )
         except asyncio.TimeoutError:
             logger.debug(f"Screenshot timeout for {target.host}")

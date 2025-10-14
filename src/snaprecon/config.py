@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
+from contextlib import suppress
 from pathlib import Path
-from typing import Literal, Optional, Set
+from typing import Any, Literal, Optional, Set
 
 from pydantic import BaseModel, Field, PrivateAttr, field_validator
 import toml
@@ -143,109 +144,115 @@ class AppConfig(BaseModel):
     @classmethod
     def from_env(cls) -> AppConfig:
         """Create config from environment variables and optional config.toml."""
+
         def optional_env(name: str) -> Optional[str]:
             value = os.getenv(name)
             return value if value not in {None, ""} else None
 
+        def record(field: str, value: Any, *, explicit_fields: Set[str], cfg_map: dict[str, Any]) -> None:
+            cfg_map[field] = value
+            explicit_fields.add(field)
+
+        cfg: dict[str, Any] = {}
         explicit: Set[str] = set()
 
-        cfg = {
-            "output_dir": Path(optional_env("SNAPRECON_OUTPUT_DIR") or "runs"),
-            "user_agent": optional_env("SNAPRECON_USER_AGENT") or "",
-            "timeout_ms": int(optional_env("SNAPRECON_TIMEOUT_MS") or 30000),
-            "fullpage": (optional_env("SNAPRECON_FULLPAGE") or "false").lower() == "true",
-            "subfinder_bin": optional_env("SNAPRECON_SUBFINDER_BIN") or "subfinder",
-            "concurrency": int(optional_env("SNAPRECON_CONCURRENCY") or 5),
-            "headless": (optional_env("SNAPRECON_HEADLESS") or "true").lower()
-            not in {"0", "false", "no"},
-            "debug": (optional_env("SNAPRECON_DEBUG") or "false").lower() == "true",
-            "scan_profile": optional_env("SNAPRECON_SCAN_PROFILE") or "balanced",
-            "wappalyzer_enabled": optional_env("SNAPRECON_WAPPALYZER_ENABLED"),
-            "wappalyzer_scan_type": optional_env("SNAPRECON_WAPPALYZER_SCAN_TYPE") or "balanced",
-            "wappalyzer_threads": int(optional_env("SNAPRECON_WAPPALYZER_THREADS") or 3),
-        }
+        # Environment overrides
+        if (value := optional_env("SNAPRECON_OUTPUT_DIR")) is not None:
+            record("output_dir", Path(value), explicit_fields=explicit, cfg_map=cfg)
 
-        # Record env-provided keys for explicit override tracking
-        env_field_map = {
-            "output_dir": "SNAPRECON_OUTPUT_DIR",
-            "user_agent": "SNAPRECON_USER_AGENT",
-            "timeout_ms": "SNAPRECON_TIMEOUT_MS",
-            "fullpage": "SNAPRECON_FULLPAGE",
-            "subfinder_bin": "SNAPRECON_SUBFINDER_BIN",
-            "concurrency": "SNAPRECON_CONCURRENCY",
-            "headless": "SNAPRECON_HEADLESS",
-            "debug": "SNAPRECON_DEBUG",
-            "scan_profile": "SNAPRECON_SCAN_PROFILE",
-            "wappalyzer_enabled": "SNAPRECON_WAPPALYZER_ENABLED",
-            "wappalyzer_scan_type": "SNAPRECON_WAPPALYZER_SCAN_TYPE",
-            "wappalyzer_threads": "SNAPRECON_WAPPALYZER_THREADS",
-        }
+        if (value := optional_env("SNAPRECON_USER_AGENT")) is not None:
+            record("user_agent", value, explicit_fields=explicit, cfg_map=cfg)
 
-        for field_name, env_name in env_field_map.items():
-            if os.getenv(env_name) not in {None, ""}:
-                explicit.add(field_name)
+        if (value := optional_env("SNAPRECON_TIMEOUT_MS")) is not None:
+            with suppress(ValueError):
+                record("timeout_ms", int(value), explicit_fields=explicit, cfg_map=cfg)
+
+        if (value := optional_env("SNAPRECON_FULLPAGE")) is not None:
+            record(
+                "fullpage",
+                value.strip().lower() in {"1", "true", "yes", "on"},
+                explicit_fields=explicit,
+                cfg_map=cfg,
+            )
+
+        if (value := optional_env("SNAPRECON_SUBFINDER_BIN")) is not None:
+            record("subfinder_bin", value, explicit_fields=explicit, cfg_map=cfg)
+
+        if (value := optional_env("SNAPRECON_CONCURRENCY")) is not None:
+            with suppress(ValueError):
+                record("concurrency", int(value), explicit_fields=explicit, cfg_map=cfg)
+
+        if (value := optional_env("SNAPRECON_HEADLESS")) is not None:
+            record(
+                "headless",
+                value.strip().lower() not in {"0", "false", "no", "off"},
+                explicit_fields=explicit,
+                cfg_map=cfg,
+            )
+
+        if (value := optional_env("SNAPRECON_DEBUG")) is not None:
+            record(
+                "debug",
+                value.strip().lower() in {"1", "true", "yes", "on"},
+                explicit_fields=explicit,
+                cfg_map=cfg,
+            )
+
+        if (value := optional_env("SNAPRECON_SCAN_PROFILE")) is not None:
+            record("scan_profile", value, explicit_fields=explicit, cfg_map=cfg)
+
+        if (value := optional_env("SNAPRECON_WAPPALYZER_ENABLED")) is not None:
+            record("wappalyzer_enabled", value, explicit_fields=explicit, cfg_map=cfg)
+
+        if (value := optional_env("SNAPRECON_WAPPALYZER_SCAN_TYPE")) is not None:
+            record("wappalyzer_scan_type", value, explicit_fields=explicit, cfg_map=cfg)
+
+        if (value := optional_env("SNAPRECON_WAPPALYZER_THREADS")) is not None:
+            with suppress(ValueError):
+                record("wappalyzer_threads", int(value), explicit_fields=explicit, cfg_map=cfg)
 
         # Merge config.toml if present
         config_path = Path(os.getenv("SNAPRECON_CONFIG", "config.toml"))
         if config_path.exists():
             try:
                 data = toml.loads(config_path.read_text())
-                # Map sections → fields
+
                 browser = data.get("browser", {})
                 discovery = data.get("discovery", {})
                 output = data.get("output", {})
                 runtime = data.get("runtime", {})
                 wappalyzer_cfg = data.get("wappalyzer", {})
 
-                ua = browser.get("user_agent")
-                if ua:
-                    cfg["user_agent"] = ua
-                    explicit.add("user_agent")
+                if (ua := browser.get("user_agent")):
+                    record("user_agent", ua, explicit_fields=explicit, cfg_map=cfg)
                 if "timeout_ms" in browser:
-                    cfg["timeout_ms"] = int(browser["timeout_ms"])
-                    explicit.add("timeout_ms")
+                    record("timeout_ms", int(browser["timeout_ms"]), explicit_fields=explicit, cfg_map=cfg)
                 if "fullpage" in browser:
-                    cfg["fullpage"] = bool(browser["fullpage"])
-                    explicit.add("fullpage")
+                    record("fullpage", bool(browser["fullpage"]), explicit_fields=explicit, cfg_map=cfg)
                 if "headless" in browser:
-                    cfg["headless"] = bool(browser["headless"])
-                    explicit.add("headless")
-
-                if browser.get("user_agent"):
-                    cfg["user_agent"] = browser["user_agent"]
-                    explicit.add("user_agent")
+                    record("headless", bool(browser["headless"]), explicit_fields=explicit, cfg_map=cfg)
 
                 if discovery.get("subfinder_bin"):
-                    cfg["subfinder_bin"] = discovery["subfinder_bin"]
-                    explicit.add("subfinder_bin")
+                    record("subfinder_bin", discovery["subfinder_bin"], explicit_fields=explicit, cfg_map=cfg)
                 if "concurrency" in discovery:
-                    cfg["concurrency"] = int(discovery["concurrency"])
-                    explicit.add("concurrency")
+                    record("concurrency", int(discovery["concurrency"]), explicit_fields=explicit, cfg_map=cfg)
 
-                out_dir = output.get("output_dir")
-                if out_dir:
-                    cfg["output_dir"] = Path(out_dir)
-                    explicit.add("output_dir")
+                if (out_dir := output.get("output_dir")):
+                    record("output_dir", Path(out_dir), explicit_fields=explicit, cfg_map=cfg)
                 if "debug" in output:
-                    cfg["debug"] = bool(output["debug"])
-                    explicit.add("debug")
+                    record("debug", bool(output["debug"]), explicit_fields=explicit, cfg_map=cfg)
 
                 if runtime.get("scan_profile"):
-                    cfg["scan_profile"] = runtime["scan_profile"]
-                    explicit.add("scan_profile")
+                    record("scan_profile", runtime["scan_profile"], explicit_fields=explicit, cfg_map=cfg)
                 if "dry_run" in runtime:
-                    cfg["dry_run"] = bool(runtime["dry_run"])
-                    explicit.add("dry_run")
+                    record("dry_run", bool(runtime["dry_run"]), explicit_fields=explicit, cfg_map=cfg)
 
                 if "enabled" in wappalyzer_cfg:
-                    cfg["wappalyzer_enabled"] = wappalyzer_cfg.get("enabled")
-                    explicit.add("wappalyzer_enabled")
+                    record("wappalyzer_enabled", wappalyzer_cfg.get("enabled"), explicit_fields=explicit, cfg_map=cfg)
                 if "scan_type" in wappalyzer_cfg:
-                    cfg["wappalyzer_scan_type"] = wappalyzer_cfg.get("scan_type")
-                    explicit.add("wappalyzer_scan_type")
+                    record("wappalyzer_scan_type", wappalyzer_cfg.get("scan_type"), explicit_fields=explicit, cfg_map=cfg)
                 if "threads" in wappalyzer_cfg:
-                    cfg["wappalyzer_threads"] = wappalyzer_cfg.get("threads")
-                    explicit.add("wappalyzer_threads")
+                    record("wappalyzer_threads", wappalyzer_cfg.get("threads"), explicit_fields=explicit, cfg_map=cfg)
 
             except Exception:
                 # Fall back silently to env/defaults if toml invalid

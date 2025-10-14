@@ -16,11 +16,12 @@ from .analysis import analyze_targets
 from .browser import screenshot_many
 from .config import AppConfig
 from .discover import resolve_targets
-from .errors import DependencyError
+from .errors import DependencyError, ScopeError
 from .models import RunResult, SafeConfig, Target
 from .reporting import write_results_and_reports
 from .tech import detect_technologies
 from .utils import check_optional_dependencies, check_required_dependencies, setup_logging
+from .safety import enforce_scope
 
 app = typer.Typer(
     add_completion=False,
@@ -95,6 +96,12 @@ def main(
         help="Load targets from a text file (one host per line)",
         show_default=False,
     ),
+    scope_file: Optional[str] = typer.Option(
+        None,
+        "--scope-file",
+        help="Optional allow-list file; targets outside the scope are dropped",
+        show_default=False,
+    ),
     output_dir: str = typer.Option(
         "runs",
         "--output-dir",
@@ -135,6 +142,7 @@ def main(
         run(
             domain=domain,
             targets_file=targets_file,
+            scope_file=scope_file,
             output_dir=output_dir,
             dry_run=dry_run,
             debug=debug,
@@ -163,6 +171,12 @@ def run(
         "--targets-file",
         "-t",
         help="Load targets from a text file (one host per line)",
+        show_default=False,
+    ),
+    scope_file: Optional[str] = typer.Option(
+        None,
+        "--scope-file",
+        help="Optional allow-list file; targets outside the scope are dropped",
         show_default=False,
     ),
     output_dir: str = typer.Option(
@@ -258,6 +272,19 @@ def run(
                 raise typer.BadParameter(
                     "Missing input: provide --domain or --targets-file. Run 'snaprecon --help' for usage details."
                 )
+
+            if scope_file:
+                try:
+                    before = len(targets)
+                    targets = enforce_scope(targets, scope_file)
+                    dropped = before - len(targets)
+                    scope_msg = f"Scope applied: {len(targets)} in scope"
+                    if dropped:
+                        scope_msg += f", {dropped} dropped"
+                    progress.update(task, description=scope_msg)
+                except ScopeError as exc:
+                    console.print(f"[red]✗[/red] Scope validation failed: {exc}")
+                    raise typer.Exit(1) from exc
 
         console.print("[yellow]Taking screenshots...[/yellow]")
         completed = 0
