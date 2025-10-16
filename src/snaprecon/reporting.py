@@ -61,7 +61,15 @@ _JINJA_ENV: Environment | None = None
 def _get_environment() -> Environment:
     global _JINJA_ENV
     if _JINJA_ENV is None:
-        template_root = resources.files("snaprecon") / "templates"
+        # Try packaged templates first, fallback to project templates
+        try:
+            template_root = resources.files("snaprecon") / "templates"
+            if not template_root.exists():
+                raise FileNotFoundError("Packaged templates not found")
+        except (FileNotFoundError, ModuleNotFoundError):
+            # Fallback to project templates directory
+            template_root = Path(__file__).parent.parent.parent / "templates"
+        
         _JINJA_ENV = Environment(
             loader=FileSystemLoader(str(template_root)),
             autoescape=select_autoescape()
